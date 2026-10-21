@@ -72,6 +72,11 @@
         clock: Date.now(),
 
         init() {
+            // A modal autofocuses its first field before this component starts.
+            if (document.activeElement && document.activeElement !== document.body) {
+                this.focusChanged(document.activeElement)
+            }
+
             this.schedule(0)
             this.$nextTick(() => this.mark())
             setInterval(() => (this.clock = Date.now()), 15000)
@@ -81,7 +86,7 @@
         },
 
         destroy() {
-            clearTimeout(this.timer)
+            this.leave()
             this.unmark()
         },
 
@@ -128,7 +133,7 @@
         },
 
         focusChanged(target) {
-            if (config.mode !== 'editing') {
+            if (config.mode !== 'editing' || ! config.trackFields) {
                 return
             }
 
@@ -142,7 +147,7 @@
         },
 
         focusLeft() {
-            if (config.mode !== 'editing') {
+            if (config.mode !== 'editing' || ! config.trackFields) {
                 return
             }
 

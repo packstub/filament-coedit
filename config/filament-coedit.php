@@ -45,4 +45,16 @@ return [
 
     'remember_saves_for' => 3600,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Field presence
+    |--------------------------------------------------------------------------
+    |
+    | Show which field each person is in. Off, the avatars stay and the
+    | browser never reports focus; the merge on save is not affected.
+    |
+    */
+
+    'track_fields' => true,
+
 ];

@@ -3,18 +3,19 @@
 namespace Packstub\CoEdit\Concerns;
 
 use Filament\Actions\Action;
-use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
-use Illuminate\Contracts\Support\Htmlable;
+use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Packstub\CoEdit\CoEdit;
+use Packstub\CoEdit\Events\ChangesMerged;
+use Packstub\CoEdit\Events\ConflictDetected;
+use Packstub\CoEdit\Events\ConflictResolved;
 use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Merge\ThreeWayMerge;
-use UnitEnum;
+use Packstub\CoEdit\Support\FormFields;
 
 /**
  * For EditRecord pages: presence in the header, and a save that merges.
@@ -23,6 +24,9 @@ use UnitEnum;
  * read again and filled through the same form; fields only the other person
  * changed keep their value, fields only you changed take yours, and fields
  * you both changed open a dialog to pick per field. Nobody waits on a lock.
+ *
+ * A page that overrides save() itself calls coeditMergeBeforeSave() first and
+ * stops when it returns false.
  */
 trait InteractsWithCoEdit
 {
@@ -48,6 +52,9 @@ trait InteractsWithCoEdit
     #[Locked]
     public array $coeditSaveArguments = [true, true];
 
+    /** True while the dialog's own submit is saving, for this request only. */
+    protected bool $coeditResolving = false;
+
     public function mountInteractsWithCoEdit(): void
     {
         $this->coeditBase = $this->coeditFields($this->data ?? []);
@@ -57,6 +64,18 @@ trait InteractsWithCoEdit
     public function getCoEditMode(): string
     {
         return 'editing';
+    }
+
+    /**
+     * Fields left out of the merge: your value is saved as in plain Filament.
+     * For fields another process owns (a counter, a status a job sets) or
+     * that are derived from other fields.
+     *
+     * @return list<string>
+     */
+    public function getCoEditIgnoredFields(): array
+    {
+        return [];
     }
 
     public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
@@ -79,6 +98,8 @@ trait InteractsWithCoEdit
         $theirs = $this->coeditTheirs();
 
         if ($theirs === null) {
+            $this->coeditAcknowledge(advanceVersion: true);
+
             return;
         }
 
@@ -91,8 +112,8 @@ trait InteractsWithCoEdit
         Notification::make()
             ->title(__('filament-coedit::coedit.pull.title'))
             ->body($result->hasConflicts()
-                ? __('filament-coedit::coedit.pull.conflicts', ['fields' => $this->coeditLabels($result->conflicts)])
-                : ($result->taken === [] ? null : __('filament-coedit::coedit.pull.taken', ['fields' => $this->coeditLabels($result->taken)])))
+                ? __('filament-coedit::coedit.pull.conflicts', ['fields' => FormFields::labels($this->form, $result->conflicts)])
+                : ($result->taken === [] ? null : __('filament-coedit::coedit.pull.taken', ['fields' => FormFields::labels($this->form, $result->taken)])))
             ->success()
             ->send();
     }
@@ -107,14 +128,14 @@ trait InteractsWithCoEdit
             ->modalDescription(fn (): string => trans_choice('filament-coedit::coedit.conflict.description', count($this->coeditConflicts), ['name' => $this->coeditTheirName()]))
             ->schema(fn (): array => array_map(
                 fn (string $field): Radio => Radio::make("choices.{$field}")
-                    ->label($this->coeditLabel($field))
+                    ->label(FormFields::label($this->form, $field))
                     ->options([
                         'mine' => __('filament-coedit::coedit.conflict.mine'),
                         'theirs' => __('filament-coedit::coedit.conflict.theirs', ['name' => $this->coeditTheirName()]),
                     ])
                     ->descriptions([
-                        'mine' => $this->coeditDisplay($field, $this->data[$field] ?? null),
-                        'theirs' => $this->coeditDisplay($field, $this->coeditTheirs[$field] ?? null),
+                        'mine' => FormFields::display($this->form, $field, $this->data[$field] ?? null),
+                        'theirs' => FormFields::display($this->form, $field, $this->coeditTheirs[$field] ?? null),
                     ])
                     ->default('mine')
                     ->inline()
@@ -130,8 +151,12 @@ trait InteractsWithCoEdit
      */
     protected function coeditResolve(array $choices): void
     {
+        $settled = [];
+
         foreach ($this->coeditConflicts as $field) {
-            if (($choices[$field] ?? 'mine') === 'theirs') {
+            $settled[$field] = ($choices[$field] ?? 'mine') === 'theirs' ? 'theirs' : 'mine';
+
+            if ($settled[$field] === 'theirs') {
                 $this->data[$field] = $this->coeditTheirs[$field] ?? null;
             }
 
@@ -142,7 +167,15 @@ trait InteractsWithCoEdit
         $this->coeditTheirs = [];
         $this->coeditConflicts = [];
 
-        $this->save(...$this->coeditSaveArguments);
+        ConflictResolved::dispatch($this->getRecord(), auth()->user(), $settled);
+
+        $this->coeditResolving = true;
+
+        try {
+            $this->save(...$this->coeditSaveArguments);
+        } finally {
+            $this->coeditResolving = false;
+        }
     }
 
     /**
@@ -167,14 +200,17 @@ trait InteractsWithCoEdit
         }
 
         $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditFields($this->data), $theirs);
+        $name = $this->coeditTheirName();
 
         $this->data = [...$this->data, ...$result->data];
         $this->coeditAcknowledge(advanceVersion: false);
 
         if ($result->taken !== []) {
+            ChangesMerged::dispatch($this->getRecord(), auth()->user(), $result->taken, $name);
+
             Notification::make()
-                ->title(__('filament-coedit::coedit.taken.title', ['name' => $this->coeditTheirName()]))
-                ->body(__('filament-coedit::coedit.taken.body', ['fields' => $this->coeditLabels($result->taken)]))
+                ->title(__('filament-coedit::coedit.taken.title', ['name' => $name]))
+                ->body(__('filament-coedit::coedit.taken.body', ['fields' => FormFields::labels($this->form, $result->taken)]))
                 ->info()
                 ->send();
         }
@@ -183,9 +219,20 @@ trait InteractsWithCoEdit
             return true;
         }
 
+        ConflictDetected::dispatch($this->getRecord(), auth()->user(), $result->conflicts, $name);
+
         $this->coeditConflicts = $result->conflicts;
         $this->coeditTheirs = Arr::only($theirs, $result->conflicts);
         $this->coeditBase = [...$this->coeditBase, ...Arr::except($theirs, $result->conflicts)];
+
+        if ($this->coeditResolving) {
+            // A newer save conflicts while the dialog is submitting: Filament would
+            // unmount a dialog replaced by itself, so refill it in place (its fields
+            // come from the conflict list) and stay open.
+            $this->getMountedActionSchema()?->fill();
+
+            throw new Halt;
+        }
 
         $this->mountAction('coeditResolve');
 
@@ -206,7 +253,12 @@ trait InteractsWithCoEdit
             return;
         }
 
-        $save = CoEdit::store()->recordSave($this->getCoEditRoom(), CoEdit::who(), array_map($this->coeditLabel(...), $changed));
+        $save = CoEdit::store()->recordSave(
+            $this->getCoEditRoom(),
+            CoEdit::who(),
+            array_map(fn (string $field): string => FormFields::label($this->form, $field), $changed),
+        );
+
         $this->coeditVersion = $save['version'];
 
         $this->dispatch('coedit-acknowledged', version: $save['version'])->to(Presence::class);
@@ -234,83 +286,15 @@ trait InteractsWithCoEdit
     }
 
     /**
-     * Only the values the form edits take part: ids, timestamps and other
-     * attributes the form carries along are not something to merge.
+     * Only the values the form edits take part: ids, timestamps, other
+     * attributes the form carries along and ignored fields are not merged.
      *
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     protected function coeditFields(array $data): array
     {
-        return Arr::only($data, $this->coeditFieldNames());
-    }
-
-    /**
-     * @return list<string>
-     */
-    protected function coeditFieldNames(): array
-    {
-        return array_values(array_unique(array_map(
-            fn (Field $field): string => Str::before($field->getStatePath(isAbsolute: false), '.'),
-            array_values($this->form->getFlatFields(withHidden: true)),
-        )));
-    }
-
-    protected function coeditField(string $name): ?Field
-    {
-        foreach ($this->form->getFlatFields(withHidden: true) as $field) {
-            if ($field->getStatePath(isAbsolute: false) === $name) {
-                return $field;
-            }
-        }
-
-        return null;
-    }
-
-    protected function coeditLabel(string $name): string
-    {
-        $label = $this->coeditField($name)?->getLabel();
-
-        return filled($label) ? strip_tags($label instanceof Htmlable ? $label->toHtml() : (string) $label) : Str::headline($name);
-    }
-
-    /**
-     * @param  list<string>  $names
-     */
-    protected function coeditLabels(array $names): string
-    {
-        return implode(', ', array_map($this->coeditLabel(...), $names));
-    }
-
-    /**
-     * A value as the person would recognise it: option labels for selects and
-     * radios, plain text for rich content, "empty" for nothing.
-     */
-    protected function coeditDisplay(string $name, mixed $value): string
-    {
-        $field = $this->coeditField($name);
-        $options = $field && method_exists($field, 'getOptions') ? Arr::dot((array) $field->getOptions()) : [];
-
-        $values = collect(Arr::wrap($value))->flatten()
-            ->map(fn (mixed $item): mixed => $item instanceof UnitEnum ? ($item->value ?? $item->name) : $item)
-            ->filter(fn (mixed $item): bool => filled($item) || is_bool($item))
-            ->map(function (mixed $item) use ($options): string {
-                if (is_bool($item)) {
-                    return $item ? __('filament-coedit::coedit.yes') : __('filament-coedit::coedit.no');
-                }
-
-                if (is_scalar($item)) {
-                    $option = collect($options)->first(fn (mixed $label, int|string $key): bool => Str::afterLast((string) $key, '.') === (string) $item);
-
-                    return $option !== null ? (string) $option : (string) $item;
-                }
-
-                return json_encode($item) ?: '';
-            });
-
-        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($values->implode(', ')))) ?? '');
-
-        return $text === '' ? __('filament-coedit::coedit.empty') : Str::limit($text, 140);
+        return FormFields::only($this->form, $data, $this->getCoEditIgnoredFields());
     }
 
     protected function coeditTheirName(): string

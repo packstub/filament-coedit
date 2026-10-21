@@ -2,6 +2,7 @@
 
 namespace Packstub\CoEdit;
 
+use Filament\Actions\EditAction;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Support\Assets\Css;
 use Filament\Support\Facades\FilamentAsset;
@@ -11,6 +12,7 @@ use Illuminate\Routing\Middleware\ValidateSignature;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
+use Packstub\CoEdit\Actions\CoEditAction;
 use Packstub\CoEdit\Concerns\HasPresence;
 use Packstub\CoEdit\Concerns\InteractsWithCoEdit;
 use Packstub\CoEdit\Http\LeaveController;
@@ -40,6 +42,12 @@ class CoEditServiceProvider extends PackageServiceProvider
     public function packageBooted(): void
     {
         Livewire::component('filament-coedit-presence', Presence::class);
+
+        /** @param  list<string>  $ignore */
+        EditAction::macro('coEdit', function (array $ignore = [], bool $presence = true): EditAction {
+            /** @var EditAction $this */
+            return CoEditAction::configure($this, $ignore, $presence);
+        });
 
         // No session or CSRF token on a beacon; the signature is the authorisation.
         Route::post('filament-coedit/leave', LeaveController::class)

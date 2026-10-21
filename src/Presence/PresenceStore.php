@@ -2,6 +2,7 @@
 
 namespace Packstub\CoEdit\Presence;
 
+use Closure;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Database\Eloquent\Model;
@@ -19,9 +20,28 @@ class PresenceStore
     /** Avatar ring colours, picked per user so a person keeps theirs across records. */
     public const COLORS = ['#e11d48', '#2563eb', '#059669', '#d97706', '#7c3aed', '#0891b2', '#c026d3', '#65a30d'];
 
+    /** @var (Closure(Model): string)|null */
+    protected static ?Closure $roomResolver = null;
+
+    /**
+     * The room of a record: its database, type and key. The database is part
+     * of it so the same id in two tenant databases are two different records.
+     */
     public static function room(Model $record): string
     {
-        return $record->getMorphClass().':'.$record->getKey();
+        if (static::$roomResolver) {
+            return (string) (static::$roomResolver)($record);
+        }
+
+        return $record->getConnection()->getDatabaseName().'|'.$record->getMorphClass().':'.$record->getKey();
+    }
+
+    /**
+     * @param  (Closure(Model): string)|null  $resolver
+     */
+    public static function resolveRoomUsing(?Closure $resolver): void
+    {
+        static::$roomResolver = $resolver;
     }
 
     public static function colorFor(string $user): string

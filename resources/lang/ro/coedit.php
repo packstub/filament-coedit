@@ -39,5 +39,9 @@ return [
         'submit' => 'Salvează',
     ],
 
+    'modal' => [
+        'body' => 'Valorile lor sunt mai jos. Trimite din nou ca să le salvezi pe ale tale sau închide ca să le păstrezi pe ale lor.',
+    ],
+
     'deleted' => ':name a șters înregistrarea în timp ce editai. Nu s-a salvat nimic.',
 ];

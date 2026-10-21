@@ -12,6 +12,15 @@ First release.
 - `HasPresence` for view pages.
 - Field-level presence: a coloured outline and name tag on the field each person is in, found from `wire:model` or `$entangle()`, put back after Livewire morphs the form.
 - "Ana saved this record" notice with the changed fields, **Get their changes** (pulls them into the open form without saving) and **Dismiss**; it closes as soon as the page has merged that save.
+- `EditAction::make()->coEdit()` for modal edits (relation managers, simple resources, table edit actions): the form is fingerprinted into the modal's state when it opens; on submit, fields only the other person changed are left out of the update, and a conflict stops the first submit with their values in a notice (submitting again keeps yours). Avatars and field markers in the modal; `ignore:` and `presence:` arguments; wraps the action's existing `afterFormFilled()`, `before()` and `after()` callbacks.
+- `getCoEditIgnoredFields()` to leave fields out of the merge (they save as in plain Filament).
+- Events: `ChangesMerged`, `ConflictDetected`, `ConflictResolved`.
+- Rooms include the record's database, so the same id in two tenant databases never shares presence; `PresenceStore::resolveRoomUsing()` to decide otherwise.
+- When a newer save conflicts while the dialog is submitting, the dialog stays open with the new conflicts instead of closing.
+- Relationship selects show related records by name in the dialog, also when their options are searched rather than preloaded; `&nbsp;` and other entities read as plain text.
+- `track_fields` config option; a modal's autofocused field is reported as soon as presence starts; a presence component that goes away (a modal closing) leaves the record at once.
+- `coeditMergeBeforeSave()` for pages that override `save()`.
 - `PresenceColumn` for tables.
 - Cache-backed presence (any store with locks), heartbeats that never re-render, a signed `sendBeacon` so closing tabs leave at once, one entry per person across tabs, colours stable per user.
 - English, Romanian, Russian and German.
+- Requires Filament 4.13.3+ or 5.8.3+, the first releases past the published multi-factor authentication advisories.

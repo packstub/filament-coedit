@@ -2,6 +2,8 @@
 
 namespace Packstub\CoEdit\Tests\Fixtures;
 
+use Filament\Actions\EditAction;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -26,15 +28,25 @@ class ArticleResource extends Resource
             TextInput::make('price')->numeric(),
             Toggle::make('is_featured')->label('Featured'),
             Repeater::make('tags')->simple(TextInput::make('name')),
+            Select::make('category_id')->label('Category')->relationship('category', 'name'),
+            Select::make('labels')->multiple()->relationship('labels', 'name'),
+            TextInput::make('meta.color')->label('Colour'),
+            FileUpload::make('cover')->disk('public')->directory('covers'),
+            TextInput::make('internal_note')->hidden(fn (): bool => ! config('coedit-test.show_internal_note', false)),
+            TextInput::make('views')->numeric(),
         ]);
     }
 
     public static function table(Table $table): Table
     {
-        return $table->columns([
-            TextColumn::make('title'),
-            PresenceColumn::make('presence'),
-        ]);
+        return $table
+            ->columns([
+                TextColumn::make('title'),
+                PresenceColumn::make('presence'),
+            ])
+            ->recordActions([
+                EditAction::make()->coEdit(ignore: ['views']),
+            ]);
     }
 
     public static function getPages(): array
@@ -43,6 +55,7 @@ class ArticleResource extends Resource
             'index' => ListArticles::route('/'),
             'view' => ViewArticle::route('/{record}'),
             'edit' => EditArticle::route('/{record}/edit'),
+            'edit-ignoring' => EditArticleIgnoringViews::route('/{record}/edit-ignoring'),
         ];
     }
 }

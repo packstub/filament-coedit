@@ -40,6 +40,8 @@ return $table
 
 ![The table column](images/table.png)
 
+For relation managers, simple resources and other modal edits, see [Modal edits](modal-edits.md).
+
 ## What people see
 
 When someone else saves while you are editing, a notice names them and the fields they changed:

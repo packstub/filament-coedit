@@ -17,7 +17,10 @@ In Filament, the last save wins: when two people have a record open, the second 
 - **Saves that merge**: if someone saved while you were editing, the fields only they changed keep their value and the fields only you changed take yours. Neither person's work is lost.
 - **A conflict dialog only when needed**: when you both changed the same field, you pick *Keep mine* or *Use Ana's* for each of those fields, and only for those.
 - **"Ana saved this record"**: a notice names who saved and which fields changed. **Get their changes** pulls them into your open form without saving. On a view page, **Reload** shows them.
+- **Modal edits too**: `EditAction::make()->coEdit()` brings the same merge and presence to relation managers, simple (modal) resources and table edit actions.
 - **Who's where in tables**: `PresenceColumn` shows avatars on the rows people have open.
+- **Events for your audit log**: `ChangesMerged`, `ConflictDetected` and `ConflictResolved` say what was kept, what was contested and what each person chose.
+- **Tenant-aware**: rooms include the record's database, so the same id in two tenant databases never shares presence.
 - **No websockets, no migrations**: each open page checks in every few seconds with a Livewire request, and presence is kept in your cache (Redis, database, memcached…). There's no Reverb or Pusher to run and no tables to add.
 - **Add a trait**: no panel plugin to register and nothing to configure.
 - Dark mode, `prefers-reduced-motion`, a live region that names who is on the record for screen readers; English, Romanian, Russian and German.
@@ -26,4 +29,6 @@ In Filament, the last save wins: when two people have a record open, the second 
 
 | Plugin | Filament | Laravel | PHP |
 | --- | --- | --- | --- |
-| 1.x | 4.13+, 5.x | 12.x, 13.x | 8.3+ |
+| 1.x | 4.13.3+, 5.8.3+ | 12.x, 13.x | 8.3+ |
+
+The floors are the first Filament releases with the fixes for the multi-factor authentication advisories published up to 4.13.2 and 5.8.2. The suite runs on both floors and on the latest 4.x and 5.x.

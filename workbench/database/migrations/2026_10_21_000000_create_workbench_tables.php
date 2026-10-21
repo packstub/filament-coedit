@@ -20,5 +20,15 @@ return new class extends Migration
             $table->boolean('is_featured')->default(false);
             $table->timestamps();
         });
+
+        Schema::create('suppliers', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('contact');
+            $table->string('email');
+            $table->unsignedInteger('lead_time_days')->default(7);
+            $table->text('notes')->nullable();
+            $table->timestamps();
+        });
     }
 };

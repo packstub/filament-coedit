@@ -4,6 +4,7 @@ namespace Workbench\Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Workbench\App\Models\Product;
+use Workbench\App\Models\Supplier;
 use Workbench\App\Models\User;
 
 class DatabaseSeeder extends Seeder
@@ -24,6 +25,10 @@ class DatabaseSeeder extends Seeder
 
         foreach ($products as [$name, $sku, $status, $price, $stock, $description, $featured]) {
             Product::query()->firstOrCreate(['sku' => $sku], compact('name', 'status', 'price', 'stock', 'description') + ['is_featured' => $featured]);
+        }
+
+        foreach ([['Lisbon Knitworks', 'Rita Sousa', 'rita@knitworks.pt', 21], ['Okayama Denim Co.', 'Kenji Mori', 'kenji@okayama-denim.jp', 45], ['Bristol Canvas', 'Tom Hale', 'tom@bristolcanvas.co.uk', 14]] as [$name, $contact, $email, $days]) {
+            Supplier::query()->firstOrCreate(['email' => $email], ['name' => $name, 'contact' => $contact, 'lead_time_days' => $days]);
         }
     }
 }

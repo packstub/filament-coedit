@@ -39,5 +39,9 @@ return [
         'submit' => 'Speichern',
     ],
 
+    'modal' => [
+        'body' => 'Ihre Werte stehen unten. Sende erneut, um deine zu speichern, oder schließe, um ihre zu behalten.',
+    ],
+
     'deleted' => ':name hat diesen Datensatz gelöscht, während du ihn bearbeitet hast. Nichts wurde gespeichert.',
 ];

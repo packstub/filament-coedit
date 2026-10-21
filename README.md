@@ -21,7 +21,10 @@ In Filament, the last save wins: when two people have a record open, the second 
 - **Saves that merge**: if someone saved while you were editing, the fields only they changed keep their value and the fields only you changed take yours. Neither person's work is lost.
 - **A conflict dialog only when needed**: when you both changed the same field, you pick *Keep mine* or *Use Ana's* for each of those fields, and only for those.
 - **"Ana saved this record"**: a notice names who saved and which fields changed. **Get their changes** pulls them into your open form without saving. On a view page, **Reload** shows them.
+- **Modal edits too**: `EditAction::make()->coEdit()` brings the same merge and presence to relation managers, simple (modal) resources and table edit actions.
 - **Who's where in tables**: `PresenceColumn` shows avatars on the rows people have open.
+- **Events for your audit log**: `ChangesMerged`, `ConflictDetected` and `ConflictResolved` say what was kept, what was contested and what each person chose.
+- **Tenant-aware**: rooms include the record's database, so the same id in two tenant databases never shares presence.
 - **No websockets, no migrations**: each open page checks in every few seconds with a Livewire request, and presence is kept in your cache (Redis, database, memcached…). There's no Reverb or Pusher to run and no tables to add.
 - **Add a trait**: no panel plugin to register and nothing to configure.
 - Dark mode, `prefers-reduced-motion`, a live region that names who is on the record for screen readers; English, Romanian, Russian and German.
@@ -30,7 +33,9 @@ In Filament, the last save wins: when two people have a record open, the second 
 
 | Plugin | Filament | Laravel | PHP |
 | --- | --- | --- | --- |
-| 1.x | 4.13+, 5.x | 12.x, 13.x | 8.3+ |
+| 1.x | 4.13.3+, 5.8.3+ | 12.x, 13.x | 8.3+ |
+
+The floors are the first Filament releases with the fixes for the multi-factor authentication advisories published up to 4.13.2 and 5.8.2. The suite runs on both floors and on the latest 4.x and 5.x.
 
 ## Installation
 
@@ -79,6 +84,68 @@ return $table
     ]);
 ```
 
+### Modal edits
+
+Relation managers, simple resources and any table with an `EditAction` edit records in a modal. Add `coEdit()` at the end of the chain:
+
+```php
+use Filament\Actions\EditAction;
+
+->recordActions([
+    EditAction::make()->coEdit(),
+])
+```
+
+The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. Call `coEdit()` last, because it wraps the `afterFormFilled()`, `before()` and `after()` callbacks already set on the action. `coEdit(ignore: ['views'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
+
+### Leaving fields out
+
+Some fields belong to someone else: a counter a job updates, or a status a webhook sets. Left out of the merge, they save as they do in plain Filament:
+
+```php
+public function getCoEditIgnoredFields(): array
+{
+    return ['views'];
+}
+```
+
+### Events
+
+Listen for these to keep an audit trail or notify the person whose change was kept:
+
+| Event | When | Payload |
+| --- | --- | --- |
+| `Packstub\CoEdit\Events\ChangesMerged` | A save kept fields only the other person changed | `record`, `user`, `fields`, `theirName` |
+| `Packstub\CoEdit\Events\ConflictDetected` | A save found fields both changed | `record`, `user`, `fields`, `theirName` |
+| `Packstub\CoEdit\Events\ConflictResolved` | The person chose in the dialog | `record`, `user`, `choices` (field => `mine` or `theirs`) |
+
+### Your own save()
+
+If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open):
+
+```php
+public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
+{
+    if (! $this->coeditMergeBeforeSave()) {
+        return;
+    }
+
+    // your save
+}
+```
+
+### Rooms
+
+A room is one record: its database, its morph class and its key. Including the database keeps two tenants' product #5 apart in database-per-tenant apps. To decide differently, for example per team on a shared database, register a resolver in a service provider:
+
+```php
+use Packstub\CoEdit\Presence\PresenceStore;
+
+PresenceStore::resolveRoomUsing(fn (Model $record): string => $record->team_id.':'.$record->getMorphClass().':'.$record->getKey());
+```
+
+Presence on a custom Livewire page works the same way: use `HasPresence` and override `getCoEditRoom()`.
+
 ## How the merge works
 
 When you save, Co-Edit reads the record again, fills it through your form and compares three versions of every field: the form as you opened it, the form as you are saving it, and the record as it is now.
@@ -106,11 +173,14 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 | `cache_store` | default store | Where presence lives, also set by `FILAMENT_COEDIT_CACHE_STORE`. Every server must share it, so in production use a shared store such as Redis or the database. |
 | `heartbeat` | `4` | Seconds between heartbeats. A page also reports at once when its user moves to another field. |
 | `timeout` | `20` | Seconds without a heartbeat before someone drops off. A closing tab leaves immediately. |
+| `track_fields` | `true` | Show which field each person is in. Off, the avatars stay and the browser never reports focus. |
 | `remember_saves_for` | `3600` | Seconds that "Ana saved this record" is remembered for the people still on the record. The merge itself always compares against the database. |
 
 ## Good to know
 
 - A heartbeat is one small Livewire request that doesn't re-render the page. With the default 4 seconds, ten people on a record send 2.5 heartbeats a second between them.
+- A toggle never conflicts: it only has two values, so if they flipped it, you either left it alone (theirs is kept) or flipped it the same way.
+- Relationship selects show related records by name in the dialog, even when their options are searched rather than preloaded.
 - A tab in the background skips its heartbeats, so it drops off after `timeout` seconds and comes back as soon as its user switches to it. A person with the record open in another, visible tab stays on.
 - The merge runs in the same request as the save, a few milliseconds before Filament writes. Two saves landing in the same instant can still overwrite each other. Co-Edit covers the minutes someone spends editing, not those last few milliseconds.
 - If someone deletes the record while you are editing, your save never recreates it: Filament can no longer load the record and the request stops before anything is written.
@@ -122,7 +192,9 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 composer test
 ```
 
-Try it with three people: `composer serve` starts a workbench panel on `http://127.0.0.1:8000/admin` (ion@, ana@ and mihai@example.com, password `password`). Open it in a few private windows.
+The suite has 95+ tests: the merge rules and value comparison on their own, presence in the cache, and two or three people editing on real Filament edit pages and modal actions (relationships, nested and hidden fields, file uploads, a third save landing while the dialog is open, ignored fields, events, tenants, tampering from the browser). `scripts/screenshots.mjs` drives three real browsers through the whole flow and checks every step.
+
+Try it with three people: `composer serve` starts a workbench panel on `http://127.0.0.1:8000/admin` with Products (edit pages) and Suppliers (modal edits). Log in as ion@, ana@ or mihai@example.com, password `password`, in a few private windows.
 
 ## License
 

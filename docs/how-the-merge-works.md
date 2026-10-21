@@ -19,6 +19,8 @@ The merge only covers fields on the form. Attributes the form doesn't edit, like
 ## Good to know
 
 - A heartbeat is one small Livewire request that doesn't re-render the page. With the default 4 seconds, ten people on a record send 2.5 heartbeats a second between them.
+- A toggle never conflicts: it only has two values, so if they flipped it, you either left it alone (theirs is kept) or flipped it the same way.
+- Relationship selects show related records by name in the dialog, even when their options are searched rather than preloaded.
 - A tab in the background skips its heartbeats, so it drops off after `timeout` seconds and comes back as soon as its user switches to it. A person with the record open in another, visible tab stays on.
 - The merge runs in the same request as the save, a few milliseconds before Filament writes. Two saves landing in the same instant can still overwrite each other. Co-Edit covers the minutes someone spends editing, not those last few milliseconds.
 - If someone deletes the record while you are editing, your save never recreates it: Filament can no longer load the record and the request stops before anything is written.

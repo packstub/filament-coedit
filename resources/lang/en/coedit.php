@@ -39,5 +39,9 @@ return [
         'submit' => 'Save',
     ],
 
+    'modal' => [
+        'body' => 'Their values are below. Submit again to save yours, or close to keep theirs.',
+    ],
+
     'deleted' => ':name deleted this record while you were editing. Nothing was saved.',
 ];

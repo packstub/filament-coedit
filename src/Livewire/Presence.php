@@ -93,6 +93,7 @@ class Presence extends Component
             'config' => [
                 'heartbeat' => max(1, (int) config('filament-coedit.heartbeat', 4)) * 1000,
                 'mode' => $this->mode,
+                'trackFields' => (bool) config('filament-coedit.track_fields', true),
                 'initial' => $this->snapshot(),
                 'now' => now()->getTimestamp(),
                 'leave' => URL::signedRoute('filament-coedit.leave', ['room' => $this->room, 'tab' => $this->tab], absolute: false),
@@ -105,7 +106,7 @@ class Presence extends Component
      */
     protected function sanitizeField(mixed $field): ?string
     {
-        if (! is_string($field) || $this->mode !== 'editing' || strlen($field) > 200) {
+        if (! is_string($field) || $this->mode !== 'editing' || ! config('filament-coedit.track_fields', true) || strlen($field) > 200) {
             return null;
         }
 

@@ -1,0 +1,133 @@
+<?php
+
+use Filament\Actions\Testing\TestAction;
+use Filament\Facades\Filament;
+use Illuminate\Support\Facades\Event;
+use Packstub\CoEdit\CoEdit;
+use Packstub\CoEdit\Events\ChangesMerged;
+use Packstub\CoEdit\Events\ConflictDetected;
+use Packstub\CoEdit\Livewire\Presence;
+use Packstub\CoEdit\Presence\PresenceStore;
+use Packstub\CoEdit\Tests\Fixtures\ListArticles;
+
+use function Pest\Livewire\livewire;
+
+beforeEach(function (): void {
+    Filament::setCurrentPanel('admin');
+
+    $this->ion = user('Ion');
+    $this->ana = user('Ana');
+    $this->article = article();
+});
+
+function openModalAs($user, $article)
+{
+    test()->actingAs($user);
+
+    return livewire(ListArticles::class)->mountAction(TestAction::make('edit')->table($article));
+}
+
+function anaSavesInModal($article, array $changes): void
+{
+    openModalAs(test()->ana, $article)->fillForm($changes)->callMountedAction()->assertHasNoFormErrors();
+}
+
+it('saves a modal edit as usual when nobody else touched the record', function (): void {
+    openModalAs($this->ion, $this->article)
+        ->fillForm(['title' => 'Autumn launch'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors()
+        ->assertNotNotified('Kept Someone\'s changes');
+
+    expect($this->article->fresh()->title)->toBe('Autumn launch')
+        ->and(CoEdit::store()->lastSave(PresenceStore::room($this->article)))
+        ->toMatchArray(['version' => 1, 'name' => 'Ion', 'fields' => ['Title']]);
+});
+
+it('keeps a colleague\'s change to a field you did not touch in the modal', function (): void {
+    $ion = openModalAs($this->ion, $this->article);
+
+    anaSavesInModal($this->article, ['status' => 'review', 'price' => 12]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn launch'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors()
+        ->assertNotified('Kept Ana\'s changes');
+
+    expect($this->article->fresh())
+        ->title->toBe('Autumn launch')
+        ->status->toBe('review')
+        ->price->toBe('12.00');
+});
+
+it('stops once on a modal conflict, shows their value, and keeps yours on the second submit', function (): void {
+    Event::fake([ConflictDetected::class]);
+
+    $ion = openModalAs($this->ion, $this->article);
+
+    anaSavesInModal($this->article, ['title' => 'Ana\'s title', 'status' => 'review']);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Ion\'s title'])
+        ->callMountedAction()
+        ->assertNotified('Ana saved this record while you were editing')
+        ->assertActionMounted(TestAction::make('edit')->table($this->article));
+
+    expect($this->article->fresh()->title)->toBe('Ana\'s title');
+    Event::assertDispatched(ConflictDetected::class, fn (ConflictDetected $event): bool => $event->fields === ['title'] && $event->theirName === 'Ana');
+
+    $ion->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh())
+        ->title->toBe('Ion\'s title')
+        ->status->toBe('review');
+});
+
+it('stops again when a newer save lands on the same field before the second submit', function (): void {
+    $ion = openModalAs($this->ion, $this->article);
+
+    anaSavesInModal($this->article, ['title' => 'Ana 1']);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Ion\'s title'])->callMountedAction()->assertNotified('Ana saved this record while you were editing');
+
+    anaSavesInModal($this->article->fresh(), ['title' => 'Ana 2']);
+
+    $this->actingAs($this->ion);
+    $ion->callMountedAction();
+
+    expect($this->article->fresh()->title)->toBe('Ana 2');
+
+    $ion->callMountedAction();
+
+    expect($this->article->fresh()->title)->toBe('Ion\'s title');
+});
+
+it('dispatches ChangesMerged for fields kept from a modal merge', function (): void {
+    Event::fake([ChangesMerged::class]);
+
+    $ion = openModalAs($this->ion, $this->article);
+    anaSavesInModal($this->article, ['price' => 50]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'X'])->callMountedAction();
+
+    Event::assertDispatched(ChangesMerged::class, fn (ChangesMerged $event): bool => $event->fields === ['price'] && $event->record->is($this->article));
+});
+
+it('leaves ignored fields to plain Filament in the modal', function (): void {
+    $ion = openModalAs($this->ion, $this->article);
+
+    $this->article->update(['views' => 99]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'X'])->callMountedAction()->assertNotNotified('Kept Someone\'s changes');
+
+    // Ignored, so the modal's stale value is saved over theirs, exactly as without Co-Edit.
+    expect($this->article->fresh()->views)->toBe(0);
+});
+
+it('shows who is on the record inside the modal', function (): void {
+    openModalAs($this->ion, $this->article)->assertSeeLivewire(Presence::class);
+});

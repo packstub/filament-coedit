@@ -17,6 +17,7 @@ use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Workbench\App\Filament\Resources\Products\ProductResource;
+use Workbench\App\Filament\Resources\Suppliers\SupplierResource;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -28,7 +29,7 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->pages([Dashboard::class])
-            ->resources([ProductResource::class])
+            ->resources([ProductResource::class, SupplierResource::class])
             ->colors(['primary' => Color::Indigo])
             ->middleware([
                 EncryptCookies::class,

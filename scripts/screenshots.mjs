@@ -3,10 +3,13 @@
 // field, saves, and Ion's save lands on top. Every step is asserted, so the rig doubles as
 // an end-to-end check of the browser side (heartbeats, field markers, notice, dialog).
 //
-//   composer build && vendor/bin/testbench serve --port=8765 &
-//   node scripts/screenshots.mjs
+//   PHP_CLI_SERVER_WORKERS=8 vendor/bin/testbench serve --port=8765 &
+//   node scripts/screenshots.mjs       (rebuilds the workbench database first; --no-seed to skip)
+//
+// It logs in three times; Filament allows five logins a minute per IP, so leave a minute between runs.
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const require = createRequire(process.env.PUPPETEER_FROM ?? new URL('../../../demos/packstub-demo/package.json', import.meta.url).pathname);
 const puppeteer = require('puppeteer-core');
@@ -15,6 +18,11 @@ const BASE = process.env.BASE ?? 'http://127.0.0.1:8765';
 const OUT = process.env.OUT ?? new URL('../docs/images/', import.meta.url).pathname;
 const W = 1440, H = 900;
 fs.mkdirSync(OUT, { recursive: true });
+
+// Every run starts from the seeded catalogue, or Ana's "changes" may already be saved.
+if (!process.argv.includes('--no-seed')) {
+  execFileSync('vendor/bin/testbench', ['workbench:build'], { cwd: new URL('..', import.meta.url).pathname, stdio: 'ignore' });
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const browser = await puppeteer.launch({
@@ -119,6 +127,39 @@ try {
   const modal = await ion.$eval('.fi-modal-window', (el) => el.innerText).catch(() => '');
   check(modal.includes('saved this record while you were editing') && modal.includes('Canvas weekender bag'), 'conflict dialog shows both versions');
   await ion.screenshot({ path: `${OUT}conflict.png` });
+
+  // Modal edits (a simple resource, no edit page): both open the same supplier in a modal.
+  const openSupplier = async (page) => {
+    await page.goto(`${BASE}/admin/suppliers`, { waitUntil: 'networkidle0' });
+    await page.evaluate(() => {
+      const row = [...document.querySelectorAll('tr')].find((tr) => tr.innerText.includes('Okayama Denim'));
+      [...row.querySelectorAll('button, a')].find((el) => el.innerText.trim() === 'Edit').click();
+    });
+    await page.waitForSelector('.fi-modal-window [id$=".contact"]', { visible: true });
+  };
+  await openSupplier(ion);
+  await openSupplier(ana);
+  await ana.click('.fi-modal-window [id$=".lead_time_days"]');
+  await ion.waitForFunction(() => [...document.querySelectorAll('.fi-coedit-tag')].some((el) => el.textContent === 'Ana Popescu'), { timeout: 15000 }).catch(() => {});
+
+  const modalAvatars = await ion.$$eval('.fi-modal-window .fi-coedit-stack .fi-coedit-avatar:not(.fi-coedit-more)', (els) => els.map((el) => el.title));
+  check(modalAvatars.some((t) => t.startsWith('Ana Popescu')), `the modal shows who else is on the record: ${modalAvatars.join(' | ')}`);
+  const modalTags = await ion.$$eval('.fi-coedit-tag', (els) => els.map((el) => el.textContent));
+  check(modalTags.includes('Ana Popescu'), 'and which field she is in');
+  await ion.screenshot({ path: `${OUT}modal.png` });
+
+  await retype(ana, '.fi-modal-window [id$=".lead_time_days"]', '30');
+  await ana.evaluate(() => [...document.querySelectorAll('.fi-modal-window button')].find((b) => b.innerText.trim() === 'Save changes' || b.innerText.trim() === 'Save').click());
+  await sleep(1500);
+
+  await retype(ion, '.fi-modal-window [id$=".contact"]', 'Kenji Mori (sales)');
+  await ion.evaluate(() => [...document.querySelectorAll('.fi-modal-window button')].find((b) => b.innerText.trim() === 'Save changes' || b.innerText.trim() === 'Save').click());
+  await sleep(2000);
+  const modalToast = await ion.$$eval('.fi-no', (els) => els.map((el) => el.innerText).join(' / ')).catch(() => '');
+  check(modalToast.includes("Kept Ana Popescu's changes"), `modal save keeps Ana's lead time: ${modalToast.split('\n').slice(0, 2).join(' ')}`);
+
+  const supplierRow = await ion.evaluate(() => [...document.querySelectorAll('tr')].find((tr) => tr.innerText.includes('Okayama Denim'))?.innerText ?? '');
+  check(supplierRow.includes('Kenji Mori (sales)') && supplierRow.includes('30 days'), 'the table shows his contact and her lead time');
 
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join('; ')}` : ''}`);
 } finally {

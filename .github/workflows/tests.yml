@@ -18,8 +18,8 @@ jobs:
       matrix:
         php: ["8.3", "8.4", "8.5"]
         laravel: ["12.*", "13.*"]
-        # 4.13.0 is the declared floor: "4.*" alone resolves to the newest 4.x and never exercises it.
-        filament: ["4.13.0", "4.*", "5.*"]
+        # 4.13.3 and 5.8.3 are the declared floors (the first releases past the MFA advisories PKSA-cnr1-6g7k-bp3d et al.): "4.*" alone resolves to the newest 4.x and never exercises them.
+        filament: ["4.13.3", "4.*", "5.8.3", "5.*"]
         include:
           - laravel: "12.*"
             testbench: "10.*"

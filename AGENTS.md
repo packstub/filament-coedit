@@ -11,7 +11,7 @@ panel plugin: a trait on the page is the whole install.
 composer test               # Pest suite (unit: merge + store; feature: two users on real EditRecord pages)
 composer test:filter <name>
 composer lint               # Pint
-composer serve              # workbench panel (testbench.yaml): ion@/ana@/mihai@example.com, password "password"
+composer serve              # workbench panel: Products (edit pages) + Suppliers (modal edits); ion@/ana@/mihai@example.com, password "password"
 node scripts/screenshots.mjs  # three-person browser rig against the workbench → docs/images, every step asserted
 ```
 
@@ -35,6 +35,15 @@ logins to 5 a minute per IP, so wait a minute between runs.
   `mutateFormDataBeforeFill()`, capture, then restoring `$this->data`, so all three versions share the form's
   representation. `coeditAfterSave()` runs from Filament's `RecordSaved` event (dispatched as a class-name string
   with a `[record, data, page]` payload, not an object).
+- `src/Actions/CoEditAction.php`: `EditAction::make()->coEdit()` (macro registered in the service provider).
+  Fingerprints of the filled form live in the modal's raw state under `__coedit` (client-visible, which is fine:
+  it only steers the person's own merge; authorisation is Filament's). The modal's form is found through
+  `getMountedActionSchemaName()` + `getSchema()`: an injected `$schema` in an action closure is the schema the
+  action sits in (null for table actions), not the modal. Taken fields are unset from the action data (the
+  refreshed record keeps theirs); a conflict halts once with a notice.
+- `src/Support/FormFields.php`: field names (top-level), labels, display values (option labels, relationship
+  labels by key, Yes/No, plain text from HTML) shared by the page trait and the action.
+- `src/Events/{ChangesMerged,ConflictDetected,ConflictResolved}.php`.
 - `src/Livewire/Presence.php` + `resources/views/presence.blade.php`: rendered once through the
   `PAGE_HEADER_ACTIONS_BEFORE` render hook (service provider, `Livewire::current()`); after that every call is
   `#[Renderless]` and Alpine draws the JSON. Field markers are found from `wire:model` or `$entangle('…')` inside
@@ -50,4 +59,9 @@ logins to 5 a minute per IP, so wait a minute between runs.
 - Only top-level form fields take part in a merge; never compare or write attributes the form does not edit.
 - `coeditTheirs` holds only the conflicting fields, never the whole record.
 - A heartbeat never renders and never touches the database.
+- A conflict found while the dialog's own submit is saving (`$coeditResolving`) refills the mounted dialog and
+  throws `Halt`: Filament unmounts an action that "replaced" itself with the same name.
+- Rooms include `getConnection()->getDatabaseName()` (database-per-tenant apps); `PresenceStore::resolveRoomUsing()`.
+- Filament floor is 4.13.3 / 5.8.3 (earlier versions are blocked by Composer's security advisories); CI runs
+  4.13.3, 4.*, 5.8.3 and 5.*.
 - Every change needs a test; `CHANGELOG.md` stays current. Strings in `resources/lang/{en,ro,ru,de}`.

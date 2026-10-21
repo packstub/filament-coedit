@@ -45,7 +45,27 @@ abstract class TestCase extends Orchestra
             $table->boolean('is_featured')->default(false);
             $table->json('tags')->nullable();
             $table->string('secret')->nullable();
+            $table->foreignId('category_id')->nullable();
+            $table->json('meta')->nullable();
+            $table->string('cover')->nullable();
+            $table->string('internal_note')->nullable();
+            $table->unsignedInteger('views')->default(0);
             $table->timestamps();
+        });
+
+        Schema::create('categories', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+        });
+
+        Schema::create('labels', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+        });
+
+        Schema::create('article_label', function (Blueprint $table): void {
+            $table->foreignId('article_id');
+            $table->foreignId('label_id');
         });
     }
 
