@@ -1,0 +1,74 @@
+<?php
+
+use Packstub\CoEdit\Presence\PresenceStore;
+
+function who(string $id, string $name): array
+{
+    return ['user' => $id, 'name' => $name, 'avatar' => null];
+}
+
+beforeEach(function (): void {
+    $this->store = app(PresenceStore::class);
+});
+
+it('groups tabs per person, the most active mode winning and every field listed', function (): void {
+    $this->store->touch('article:1', 'tab-a', who('1', 'Ana'), 'viewing');
+    $this->store->touch('article:1', 'tab-b', who('1', 'Ana'), 'editing', 'data.title');
+    $this->store->touch('article:1', 'tab-c', who('2', 'Ion'), 'editing', 'data.price');
+
+    $members = $this->store->members('article:1');
+
+    expect($members)->toHaveCount(2)
+        ->and($members[0])->toMatchArray(['user' => '1', 'name' => 'Ana', 'mode' => 'editing', 'fields' => ['data.title']])
+        ->and($members[0]['color'])->toBe(PresenceStore::colorFor('1'))
+        ->and($members[1])->toMatchArray(['user' => '2', 'fields' => ['data.price']]);
+});
+
+it('leaves the asking person out', function (): void {
+    $this->store->touch('article:1', 'tab-a', who('1', 'Ana'), 'editing');
+    $this->store->touch('article:1', 'tab-b', who('2', 'Ion'), 'editing');
+
+    expect(array_column($this->store->members('article:1', exceptUser: '2'), 'name'))->toBe(['Ana']);
+});
+
+it('drops someone who stopped sending heartbeats', function (): void {
+    config(['filament-coedit.timeout' => 20]);
+
+    $this->store->touch('article:1', 'tab-a', who('1', 'Ana'), 'editing');
+    $this->travel(15)->seconds();
+    $this->store->touch('article:1', 'tab-b', who('2', 'Ion'), 'editing');
+
+    expect($this->store->members('article:1'))->toHaveCount(2);
+
+    $this->travel(10)->seconds();
+
+    expect(array_column($this->store->members('article:1'), 'name'))->toBe(['Ion']);
+});
+
+it('forgets a tab that leaves', function (): void {
+    $this->store->touch('article:1', 'tab-a', who('1', 'Ana'), 'editing');
+    $this->store->leave('article:1', 'tab-a');
+
+    expect($this->store->members('article:1'))->toBe([]);
+});
+
+it('keeps rooms apart and reads many at once', function (): void {
+    $this->store->touch('article:1', 'tab-a', who('1', 'Ana'), 'editing');
+    $this->store->touch('article:2', 'tab-b', who('2', 'Ion'), 'viewing');
+
+    $rooms = $this->store->membersOfMany(['article:1', 'article:2', 'article:3']);
+
+    expect(array_column($rooms['article:1'], 'name'))->toBe(['Ana'])
+        ->and(array_column($rooms['article:2'], 'name'))->toBe(['Ion'])
+        ->and($rooms['article:3'])->toBe([]);
+});
+
+it('numbers the saves of a record', function (): void {
+    $first = $this->store->recordSave('article:1', who('1', 'Ana'), ['Title']);
+    $second = $this->store->recordSave('article:1', who('2', 'Ion'), ['Status', 'Price']);
+
+    expect($first['version'])->toBe(1)
+        ->and($second['version'])->toBe(2)
+        ->and($this->store->lastSave('article:1'))->toMatchArray(['version' => 2, 'name' => 'Ion', 'fields' => ['Status', 'Price']])
+        ->and($this->store->lastSave('article:2'))->toBeNull();
+});

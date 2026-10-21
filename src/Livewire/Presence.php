@@ -1,0 +1,114 @@
+<?php
+
+namespace Packstub\CoEdit\Livewire;
+
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
+use Livewire\Attributes\Renderless;
+use Livewire\Component;
+use Packstub\CoEdit\CoEdit;
+
+/**
+ * The avatars in the page header. Renders once; after that the browser asks
+ * for the room every few seconds (and when its user changes field) and draws
+ * the answer itself, so a heartbeat never re-renders anything.
+ */
+class Presence extends Component
+{
+    #[Locked]
+    public string $room;
+
+    #[Locked]
+    public string $mode = 'viewing';
+
+    /** One per open tab, so two tabs of the same person are two heartbeats. */
+    #[Locked]
+    public string $tab;
+
+    /** The last save this tab has seen; newer saves by others are announced. */
+    #[Locked]
+    public int $version = 0;
+
+    public function mount(string $room, string $mode = 'viewing', int $version = 0): void
+    {
+        $this->room = $room;
+        $this->mode = $mode === 'editing' ? 'editing' : 'viewing';
+        $this->version = $version;
+        $this->tab = Str::random(16);
+    }
+
+    /**
+     * @return array{members: list<array<string, mixed>>, save: array<string, mixed>|null}
+     */
+    #[Renderless]
+    public function heartbeat(mixed $field = null): array
+    {
+        CoEdit::store()->touch($this->room, $this->tab, CoEdit::who(), $this->mode, $this->sanitizeField($field));
+
+        return $this->snapshot();
+    }
+
+    #[Renderless]
+    public function leave(): void
+    {
+        CoEdit::store()->leave($this->room, $this->tab);
+    }
+
+    /**
+     * The person dismissed the notice, or their page merged the save.
+     */
+    #[Renderless]
+    #[On('coedit-acknowledged')]
+    public function acknowledge(?int $version = null): void
+    {
+        $latest = (int) (CoEdit::store()->lastSave($this->room)['version'] ?? 0);
+
+        $this->version = max($this->version, min($version ?? $latest, $latest));
+    }
+
+    /**
+     * @return array{members: list<array<string, mixed>>, save: array<string, mixed>|null}
+     */
+    public function snapshot(): array
+    {
+        $me = CoEdit::who()['user'];
+        $save = CoEdit::store()->lastSave($this->room);
+
+        return [
+            'members' => CoEdit::store()->members($this->room, exceptUser: $me),
+            'save' => $save !== null && $save['version'] > $this->version && $save['user'] !== $me
+                ? ['version' => $save['version'], 'name' => $save['name'], 'at' => $save['at'], 'fields' => $save['fields']]
+                : null,
+        ];
+    }
+
+    public function render(): View
+    {
+        CoEdit::store()->touch($this->room, $this->tab, CoEdit::who(), $this->mode);
+
+        return view('filament-coedit::presence', [
+            'config' => [
+                'heartbeat' => max(1, (int) config('filament-coedit.heartbeat', 4)) * 1000,
+                'mode' => $this->mode,
+                'initial' => $this->snapshot(),
+                'now' => now()->getTimestamp(),
+                'leave' => URL::signedRoute('filament-coedit.leave', ['room' => $this->room, 'tab' => $this->tab], absolute: false),
+            ],
+        ]);
+    }
+
+    /**
+     * A state path from the browser ("data.title", "data.items.3f2a….name"), or nothing.
+     */
+    protected function sanitizeField(mixed $field): ?string
+    {
+        if (! is_string($field) || $this->mode !== 'editing' || strlen($field) > 200) {
+            return null;
+        }
+
+        return preg_match('/^[A-Za-z0-9_\-.:]+$/', $field) ? $field : null;
+    }
+}

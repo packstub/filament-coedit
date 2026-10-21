@@ -1,0 +1,44 @@
+laravel: '@testbench'
+
+env:
+  - APP_NAME="Co-Edit"
+  - APP_KEY=base64:2fl+Ktv6fZ7c7ZQfF1Zt6Q0Wd9jz5bJ6rKq8nX0m3Yk=
+  - APP_DEBUG=true
+  - CACHE_STORE=file
+  - SESSION_DRIVER=file
+  - DB_CONNECTION=sqlite
+  - AUTH_MODEL=Workbench\App\Models\User
+
+providers:
+  - BladeUI\Icons\BladeIconsServiceProvider
+  - BladeUI\Heroicons\BladeHeroiconsServiceProvider
+  - RyanChandler\BladeCaptureDirective\BladeCaptureDirectiveServiceProvider
+  - Filament\FilamentServiceProvider
+  - Filament\Actions\ActionsServiceProvider
+  - Filament\Forms\FormsServiceProvider
+  - Filament\Infolists\InfolistsServiceProvider
+  - Filament\Notifications\NotificationsServiceProvider
+  - Filament\Schemas\SchemasServiceProvider
+  - Filament\Support\SupportServiceProvider
+  - Filament\Tables\TablesServiceProvider
+  - Filament\Widgets\WidgetsServiceProvider
+  - Livewire\LivewireServiceProvider
+  - Packstub\CoEdit\CoEditServiceProvider
+  - Workbench\App\Providers\AdminPanelProvider
+
+migrations:
+  - workbench/database/migrations
+
+seeders:
+  - Workbench\Database\Seeders\DatabaseSeeder
+
+workbench:
+  start: /admin
+  install: true
+  build:
+    - create-sqlite-db
+    - db-wipe
+    - migrate-fresh:
+        --seed: true
+        --seeder: Workbench\Database\Seeders\DatabaseSeeder
+    - filament:assets

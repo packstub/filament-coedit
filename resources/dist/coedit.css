@@ -1,0 +1,169 @@
+.fi-coedit {
+    display: flex;
+    align-items: center;
+}
+
+.fi-coedit-stack {
+    display: flex;
+    align-items: center;
+    padding-inline-start: 0.375rem;
+}
+
+.fi-coedit-avatar {
+    --coedit-color: #6b7280;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    margin-inline-start: 0.125rem;
+    border-radius: 9999px;
+    background: var(--coedit-color);
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    box-shadow: 0 0 0 2px var(--color-white, #fff), 0 0 0 4px var(--coedit-color);
+    overflow: visible;
+    transition: transform 150ms ease;
+}
+
+.dark .fi-coedit-avatar {
+    box-shadow: 0 0 0 2px var(--gray-950, #0a0a0a), 0 0 0 4px var(--coedit-color);
+}
+
+.fi-coedit-avatar:hover {
+    transform: translateY(-2px);
+    z-index: 1;
+}
+
+.fi-coedit-avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 9999px;
+    object-fit: cover;
+}
+
+.fi-coedit-avatar-editing::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border: 2px solid var(--coedit-color);
+    border-radius: 9999px;
+    animation: fi-coedit-pulse 2s ease-out infinite;
+}
+
+.fi-coedit-more {
+    --coedit-color: var(--gray-300, #d1d5db);
+    background: var(--gray-200, #e5e7eb);
+    color: var(--gray-700, #374151);
+}
+
+.dark .fi-coedit-more {
+    --coedit-color: var(--gray-300, #d1d5db);
+    background: var(--gray-700, #374151);
+    color: var(--gray-100, #f3f4f6);
+}
+
+.fi-coedit-field {
+    position: relative;
+    border-radius: 0.5rem;
+    outline: 2px solid var(--coedit-color);
+    outline-offset: 0.375rem;
+    transition: outline-color 200ms ease;
+}
+
+.fi-coedit-tag {
+    position: absolute;
+    top: -1.125rem;
+    inset-inline-end: 0;
+    z-index: 10;
+    padding: 0.0625rem 0.5rem;
+    border-radius: 0.375rem 0.375rem 0.375rem 0;
+    background: var(--coedit-color);
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.125rem;
+    white-space: nowrap;
+    pointer-events: none;
+    animation: fi-coedit-in 160ms ease-out;
+}
+
+.fi-coedit-notice {
+    position: fixed;
+    inset-block-end: 1.5rem;
+    inset-inline-start: 50%;
+    z-index: 40;
+    width: min(28rem, calc(100vw - 2rem));
+    transform: translateX(-50%);
+}
+
+.fi-coedit-notice-inner {
+    display: grid;
+    gap: 0.375rem;
+    padding: 1rem 1.125rem;
+    border-radius: 0.75rem;
+    background: var(--color-white, #fff);
+    box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.3), 0 0 0 1px rgb(0 0 0 / 0.06);
+}
+
+.dark .fi-coedit-notice-inner {
+    background: var(--gray-900, #171717);
+    box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+
+.fi-coedit-notice-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--gray-950, #0a0a0a);
+}
+
+.dark .fi-coedit-notice-title {
+    color: #fff;
+}
+
+.fi-coedit-notice-body,
+.fi-coedit-notice-hint {
+    font-size: 0.8125rem;
+    color: var(--gray-600, #4b5563);
+}
+
+.dark .fi-coedit-notice-body,
+.dark .fi-coedit-notice-hint {
+    color: var(--gray-400, #9ca3af);
+}
+
+.fi-coedit-notice-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.375rem;
+}
+
+.fi-coedit-column {
+    display: flex;
+    padding-inline-start: 0.375rem;
+}
+
+.fi-coedit-column .fi-coedit-avatar {
+    width: 1.625rem;
+    height: 1.625rem;
+    font-size: 0.625rem;
+}
+
+@keyframes fi-coedit-pulse {
+    0% { opacity: 0.9; transform: scale(1); }
+    70%, 100% { opacity: 0; transform: scale(1.35); }
+}
+
+@keyframes fi-coedit-in {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fi-coedit-avatar-editing::after,
+    .fi-coedit-tag {
+        animation: none;
+    }
+}

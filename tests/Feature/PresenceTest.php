@@ -1,0 +1,129 @@
+<?php
+
+use Filament\Facades\Filament;
+use Illuminate\Support\Facades\URL;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
+use Packstub\CoEdit\CoEdit;
+use Packstub\CoEdit\Livewire\Presence;
+use Packstub\CoEdit\Presence\PresenceStore;
+use Packstub\CoEdit\Tests\Fixtures\EditArticle;
+use Packstub\CoEdit\Tests\Fixtures\ListArticles;
+use Packstub\CoEdit\Tests\Fixtures\ViewArticle;
+
+use function Pest\Livewire\livewire;
+
+beforeEach(function (): void {
+    Filament::setCurrentPanel('admin');
+
+    $this->ion = user('Ion');
+    $this->ana = user('Ana');
+    $this->article = article();
+    $this->room = PresenceStore::room($this->article);
+});
+
+function presenceAs($user, string $room, string $mode = 'editing', int $version = 0)
+{
+    test()->actingAs($user);
+
+    return livewire(Presence::class, ['room' => $room, 'mode' => $mode, 'version' => $version]);
+}
+
+it('puts the avatars in the header of an edit page', function (): void {
+    $this->actingAs($this->ion);
+
+    livewire(EditArticle::class, ['record' => $this->article->getKey()])
+        ->assertSeeLivewire(Presence::class);
+});
+
+it('puts them on view pages too, as viewing', function (): void {
+    $this->actingAs($this->ion);
+
+    livewire(ViewArticle::class, ['record' => $this->article->getKey()])
+        ->assertSeeLivewire(Presence::class);
+});
+
+it('stays off pages that do not use the traits', function (): void {
+    $this->actingAs($this->ion);
+
+    livewire(ListArticles::class)->assertDontSeeLivewire(Presence::class);
+});
+
+it('shows each person the others on the record and the field they are in', function (): void {
+    presenceAs($this->ana, $this->room)->call('heartbeat', 'data.title');
+    $ion = presenceAs($this->ion, $this->room);
+
+    $members = $ion->instance()->snapshot()['members'];
+
+    expect($members)->toHaveCount(1)
+        ->and($members[0])->toMatchArray(['name' => 'Ana', 'mode' => 'editing', 'fields' => ['data.title']]);
+});
+
+it('ignores field reports from viewers and anything that is not a state path', function (string $mode, mixed $field): void {
+    presenceAs($this->ana, $this->room, $mode)->call('heartbeat', $field);
+
+    expect(CoEdit::store()->members($this->room)[0]['fields'])->toBe([]);
+})->with([
+    'viewer' => ['viewing', 'data.title'],
+    'markup' => ['editing', '<img src=x onerror=alert(1)>'],
+    'array' => ['editing', ['data.title']],
+    'too long' => ['editing', str_repeat('a', 201)],
+]);
+
+it('cannot be pointed at another room from the browser', function (): void {
+    presenceAs($this->ion, $this->room)->set('room', 'App\\Models\\User:1');
+})->throws(CannotUpdateLockedPropertyException::class);
+
+it('drops a tab that leaves', function (): void {
+    presenceAs($this->ana, $this->room)->call('leave');
+
+    expect(CoEdit::store()->members($this->room))->toBe([]);
+});
+
+it('tells the others who saved and what changed, until they acknowledge it', function (): void {
+    $ionPresence = presenceAs($this->ion, $this->room);
+
+    $this->actingAs($this->ana);
+    livewire(EditArticle::class, ['record' => $this->article->getKey()])
+        ->fillForm(['status' => 'review', 'price' => 20])
+        ->call('save');
+
+    $this->actingAs($this->ion);
+    expect($ionPresence->instance()->snapshot()['save'])
+        ->toMatchArray(['version' => 1, 'name' => 'Ana', 'fields' => ['Status', 'Price']]);
+
+    $ionPresence->call('acknowledge', 1);
+
+    expect($ionPresence->instance()->snapshot()['save'])->toBeNull();
+});
+
+it('does not announce your own save to you', function (): void {
+    $ionPresence = presenceAs($this->ion, $this->room);
+
+    livewire(EditArticle::class, ['record' => $this->article->getKey()])
+        ->fillForm(['title' => 'Mine'])
+        ->call('save');
+
+    expect($ionPresence->instance()->snapshot()['save'])->toBeNull();
+});
+
+it('lists who is on each row of a table', function (): void {
+    presenceAs($this->ana, $this->room);
+
+    $this->actingAs($this->ion);
+
+    livewire(ListArticles::class)
+        ->assertSeeHtml('title="Ana · editing"');
+});
+
+it('lets a closing tab leave through a signed beacon, and only that tab', function (): void {
+    presenceAs($this->ana, $this->room);
+    $ion = presenceAs($this->ion, $this->room);
+    $tab = $ion->get('tab');
+
+    $url = URL::signedRoute('filament-coedit.leave', ['room' => $this->room, 'tab' => $tab], absolute: false);
+
+    $this->post($url)->assertNoContent();
+    $this->post(str_replace('tab='.$tab, 'tab=other', $url))->assertForbidden();
+
+    expect(array_column(CoEdit::store()->members($this->room), 'name'))->toBe(['Ana']);
+});
