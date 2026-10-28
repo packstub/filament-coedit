@@ -16,6 +16,7 @@ use Packstub\CoEdit\Tests\Fixtures\Category;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleFillingPrice;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleTrimmingTitle;
+use Packstub\CoEdit\Tests\Fixtures\EditArticleWithOwnSave;
 use Packstub\CoEdit\Tests\Fixtures\Label;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\NamedUser;
@@ -360,3 +361,77 @@ it('never mistakes what your own save wrote for someone else\'s change', functio
         ->and($this->article->fresh())->title->toBe('Winter')->price->toBe('20.00')
         ->and(CoEdit::store()->lastSave($this->room)['fields'])->toBe(['Title', 'Price']);
 });
+
+it('keeps a colleague\'s change to a field your last save stored differently from how you typed it', function (): void {
+    $this->actingAs($this->ion);
+
+    $ion = livewire(EditArticleTrimmingTitle::class, ['record' => $this->article->getKey()])
+        ->fillForm(['title' => '  Autumn  '])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    // Ana renames it; Ion's form still says "  Autumn  ", which he has not touched since his save.
+    $this->actingAs($this->ana);
+    livewire(EditArticleTrimmingTitle::class, ['record' => $this->article->getKey()])->fillForm(['title' => 'Spring'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['price' => 20])->call('save')->assertHasNoFormErrors();
+
+    expect($ion->instance()->mountedActions)->toBe([])
+        ->and($this->article->fresh())->title->toBe('Spring')->price->toBe('20.00');
+});
+
+it('still asks when you change that field again after saving it', function (): void {
+    $this->actingAs($this->ion);
+
+    $ion = livewire(EditArticleTrimmingTitle::class, ['record' => $this->article->getKey()])
+        ->fillForm(['title' => '  Autumn  '])
+        ->call('save');
+
+    $this->actingAs($this->ana);
+    livewire(EditArticleTrimmingTitle::class, ['record' => $this->article->getKey()])->fillForm(['title' => 'Spring'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Winter'])->call('save')->assertActionMounted('coeditResolve');
+
+    expect($this->article->fresh()->title)->toBe('Spring');
+});
+
+it('gets their change to a field your last save stored differently', function (): void {
+    $this->actingAs($this->ion);
+
+    $ion = livewire(EditArticleTrimmingTitle::class, ['record' => $this->article->getKey()])
+        ->fillForm(['title' => '  Autumn  '])
+        ->call('save');
+
+    $this->actingAs($this->ana);
+    livewire(EditArticleTrimmingTitle::class, ['record' => $this->article->getKey()])->fillForm(['title' => 'Spring'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->call('coeditPull')->assertSet('data.title', 'Spring');
+});
+
+it('merges on a page with its own save() as the README shows it', function (): void {
+    $this->actingAs($this->ion);
+
+    $ion = livewire(EditArticleWithOwnSave::class, ['record' => $this->article->getKey()])
+        ->fillForm(['title' => 'Autumn'])
+        ->call('save');
+
+    expect(CoEdit::store()->lastSave($this->room))->toMatchArray(['name' => 'Ion', 'fields' => ['Title']]);
+
+    anaSavesStatus($this->article);
+
+    // His own earlier save is no conflict; Ana's status is kept.
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Winter'])->call('save');
+
+    expect($ion->instance()->mountedActions)->toBe([])
+        ->and($this->article->fresh())->title->toBe('Winter')->status->toBe('review');
+});
+
+function anaSavesStatus($article): void
+{
+    test()->actingAs(test()->ana);
+    livewire(EditArticle::class, ['record' => $article->getKey()])->fillForm(['status' => 'review'])->call('save');
+}

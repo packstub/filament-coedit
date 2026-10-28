@@ -100,9 +100,27 @@ it('offers to get their changes on an edit page, not in a modal that cannot be r
 it('tells the browser when to stop reporting in, so an unattended page lets the session expire', function (): void {
     presenceAs($this->ion, $this->room)->assertSeeHtml('\\u0022idle\\u0022:600000');
 
-    config(['filament-coedit.idle' => null]);
+});
+
+it('never pauses when idle is off', function (mixed $idle): void {
+    config(['filament-coedit.idle' => $idle]);
 
     presenceAs($this->ion, $this->room)->assertSeeHtml('\\u0022idle\\u0022:null');
+})->with(['null' => [null], 'zero' => [0], 'false' => [false], 'empty env' => ['']]);
+
+it('lets a page\'s merge acknowledge only its own record\'s save', function (): void {
+    $other = PresenceStore::room(article());
+    CoEdit::store()->recordSave($other, CoEdit::who($this->ana), ['Title']);
+    $save = CoEdit::store()->recordSave($this->room, CoEdit::who($this->ana), ['Title']);
+
+    // A modal on the page, open on another record, hears the page's event too.
+    presenceAs($this->ion, $other)
+        ->dispatch('coedit-acknowledged', version: $save['version'], room: PresenceStore::opaque($this->room))
+        ->assertSet('version', 0);
+
+    presenceAs($this->ion, $this->room)
+        ->dispatch('coedit-acknowledged', version: $save['version'], room: PresenceStore::opaque($this->room))
+        ->assertSet('version', $save['version']);
 });
 
 it('cannot be pointed at another room from the browser', function (): void {

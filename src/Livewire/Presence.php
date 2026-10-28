@@ -69,8 +69,13 @@ class Presence extends Component
      */
     #[Renderless]
     #[On('coedit-acknowledged')]
-    public function acknowledge(?int $version = null): void
+    public function acknowledge(?int $version = null, ?string $room = null): void
     {
+        // The page's merge reaches every avatar stack on it; a modal's is another record.
+        if ($room !== null && PresenceStore::opaque($room) !== $this->room) {
+            return;
+        }
+
         $latest = (int) (CoEdit::store()->lastSave($this->room)['version'] ?? 0);
 
         $this->version = max($this->version, min($version ?? $latest, $latest));
@@ -109,7 +114,8 @@ class Presence extends Component
         return view('filament-coedit::presence', [
             'config' => [
                 'heartbeat' => max(1, (int) config('filament-coedit.heartbeat', 4)) * 1000,
-                'idle' => filled(config('filament-coedit.idle', 600)) ? max(1, (int) config('filament-coedit.idle', 600)) * 1000 : null,
+                // null, 0 or false: never pause.
+                'idle' => ($idle = (int) config('filament-coedit.idle', 600)) > 0 ? $idle * 1000 : null,
                 'mode' => $this->mode,
                 'context' => $this->context,
                 'trackFields' => (bool) config('filament-coedit.track_fields', true),

@@ -121,7 +121,7 @@ Listen for these to keep an audit trail or notify the person whose change was ke
 
 ### Your own save()
 
-If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open). Wrap both in `whileSaving()` so two saves of the record never run at the same time:
+If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open). Wrap both in `whileSaving()` so two saves of the record never run at the same time, and call `coeditAfterSave()` once your save is done so the next merge starts from it (without it, your own save comes back as a conflict):
 
 ```php
 use Packstub\CoEdit\CoEdit;
@@ -134,6 +134,9 @@ public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotificat
         }
 
         // your save
+
+        // Unless your save went through Filament's (parent::save()), which reports it:
+        $this->coeditAfterSave();
     });
 }
 ```
@@ -187,6 +190,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 - A toggle never conflicts: it only has two values, so if they flipped it, you either left it alone (theirs is kept) or flipped it the same way.
 - Relationship selects show related records by name in the dialog, even when their options are searched rather than preloaded.
 - A tab in the background skips its heartbeats, so it drops off after `timeout` seconds and comes back as soon as its user switches to it. A person with the record open in another, visible tab stays on. A page nobody has touched for `idle` seconds stops too, so a forgotten tab neither keeps the session alive nor loads the server.
+- After `idle` the session can expire as usual, so the first keypress or pointer move afterwards may meet Livewire's "page expired" prompt or your login page, as any request would.
 - Saves of the same record run one at a time (a lock in the cache store), so two people pressing Save in the same instant are merged one after the other instead of overwriting each other. A save that waits more than 10 seconds for another one stops with a "try again" notice and writes nothing. Without a store that supports locks the saves are not serialised.
 - To compare like with like, the record is filled through your page the same way it was loaded (`fillForm()`), so your `beforeFill()`/`afterFill()` hooks also run when a save merges and on **Get their changes**. Only the form data is put back afterwards, so keep those hooks to setting form values.
 - If someone deletes the record while you are editing, your save never recreates it: Filament can no longer load the record and the request stops before anything is written.

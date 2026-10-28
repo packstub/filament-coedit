@@ -16,6 +16,7 @@ use Packstub\CoEdit\Events\ConflictDetected;
 use Packstub\CoEdit\Events\ConflictResolved;
 use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Merge\ThreeWayMerge;
+use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Support\FormFields;
 
 /**
@@ -27,7 +28,8 @@ use Packstub\CoEdit\Support\FormFields;
  * you both changed open a dialog to pick per field. Nobody waits on a lock.
  *
  * A page that overrides save() itself calls coeditMergeBeforeSave() first and
- * stops when it returns false, ideally inside CoEdit::store()->whileSaving().
+ * stops when it returns false, then coeditAfterSave() once it has saved, ideally
+ * all inside CoEdit::store()->whileSaving().
  */
 trait InteractsWithCoEdit
 {
@@ -36,6 +38,16 @@ trait InteractsWithCoEdit
     /** @var array<string, mixed> the form fields as they were loaded or last saved */
     #[Locked]
     public array $coeditBase = [];
+
+    /**
+     * Fields your last save stored differently from how the form holds them
+     * (trimmed, hashed, slugged): a hash of the form's value, so while the form
+     * still holds it the field counts as untouched by you.
+     *
+     * @var array<string, string>
+     */
+    #[Locked]
+    public array $coeditSaved = [];
 
     /** @var array<string, mixed> their value of every field in conflict */
     #[Locked]
@@ -130,10 +142,10 @@ trait InteractsWithCoEdit
             return;
         }
 
-        $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditFields($this->data), $theirs);
+        $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditMine(), $theirs);
 
-        $this->data = [...$this->data, ...$result->data];
-        $this->coeditBase = [...$theirs, ...Arr::only($this->coeditBase, $result->conflicts)];
+        $this->data = [...$this->data, ...Arr::only($result->data, $result->taken)];
+        $this->coeditRebase([...$theirs, ...Arr::only($this->coeditBase, $result->conflicts)]);
         $this->coeditAcknowledge(advanceVersion: ! $result->hasConflicts());
 
         Notification::make()
@@ -192,9 +204,10 @@ trait InteractsWithCoEdit
                 $this->data[$field] = $this->coeditTheirs[$field] ?? null;
             }
 
-            // Settled: from here on their value is the base, so the save only sees your choice.
-            $this->coeditBase[$field] = $this->coeditTheirs[$field] ?? null;
         }
+
+        // Settled: from here on their value is the base, so the save only sees your choice.
+        $this->coeditRebase([...$this->coeditBase, ...Arr::only($this->coeditTheirs, $this->coeditConflicts)]);
 
         $this->coeditTheirs = [];
         $this->coeditConflicts = [];
@@ -227,13 +240,13 @@ trait InteractsWithCoEdit
             return $this->coeditMerged = true;
         }
 
-        $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditFields($this->data), $theirs);
+        $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditMine(), $theirs);
         $name = $this->coeditTheirName();
 
-        $this->data = [...$this->data, ...$result->data];
+        $this->data = [...$this->data, ...Arr::only($result->data, $result->taken)];
         // What is in the database now is the base for every field not in conflict,
         // so the save afterwards only reports the fields you changed.
-        $this->coeditBase = [...$this->coeditBase, ...Arr::except($theirs, $result->conflicts)];
+        $this->coeditRebase([...$this->coeditBase, ...Arr::except($theirs, $result->conflicts)]);
         $this->coeditAcknowledge(advanceVersion: false);
 
         if ($result->taken !== []) {
@@ -282,20 +295,39 @@ trait InteractsWithCoEdit
 
         $this->coeditMerged = false;
 
+        $mine = $this->coeditFields($this->data);
+
         // The record as saved, filled through the form: what the save wrote can differ
         // from the form (mutateFormDataBeforeSave(), dehydrateStateUsing()), and the next
         // merge must not mistake that for someone else's change. The save lock is still
         // held, so this is this page's own save.
-        $saved = $this->coeditFilled();
+        try {
+            $saved = $this->coeditFilled();
+        } catch (ModelNotFoundException) {
+            // Deleted by the save itself (an observer, afterSave()): nothing left to merge with.
+            $saved = $mine;
+        }
+
         $changed = ThreeWayMerge::changed($this->coeditBase, $saved);
 
         $this->coeditBase = $saved;
+        $this->coeditSaved = [];
+
+        // ...and the form, as you left it, still counts as untouched by you.
+        foreach ($mine as $field => $value) {
+            if (ThreeWayMerge::normalize($value) !== ThreeWayMerge::normalize($saved[$field] ?? null)) {
+                $this->coeditSaved[$field] = $this->coeditPrint($value);
+            }
+        }
 
         if ($changed === []) {
             return;
         }
 
-        $labels = array_map(fn (string $field): string => FormFields::label($this->form, $field), $changed);
+        $labels = array_map(
+            fn (string $field): string => FormFields::label($this->form, $field),
+            array_values(array_intersect(array_keys($mine), $changed)),
+        );
 
         // Announced once the save is committed, so nobody pulls the version before it.
         $this->getRecord()->getConnection()->afterCommit(function () use ($labels): void {
@@ -303,7 +335,7 @@ trait InteractsWithCoEdit
 
             $this->coeditVersion = $save['version'];
 
-            $this->dispatch('coedit-acknowledged', version: $save['version'])->to(Presence::class);
+            $this->dispatch('coedit-acknowledged', version: $save['version'], room: PresenceStore::opaque($this->getCoEditRoom()))->to(Presence::class);
             $this->js("window.dispatchEvent(new CustomEvent('filament-coedit-seen'))");
         });
     }
@@ -339,6 +371,48 @@ trait InteractsWithCoEdit
         $this->data = $mine;
 
         return $filled;
+    }
+
+    /**
+     * The form's fields for a merge, with each field still as your last save left
+     * it in the form put back to what that save stored: you have not touched it.
+     *
+     * @return array<string, mixed>
+     */
+    protected function coeditMine(): array
+    {
+        $mine = $this->coeditFields($this->data);
+
+        foreach ($this->coeditSaved as $field => $print) {
+            if (array_key_exists($field, $mine) && hash_equals($print, $this->coeditPrint($mine[$field]))) {
+                $mine[$field] = $this->coeditBase[$field] ?? null;
+            }
+        }
+
+        return $mine;
+    }
+
+    /**
+     * Move the merge base. A field whose base changes forgets how your last save
+     * stored it: from here on the form is compared with the new base as it is.
+     *
+     * @param  array<string, mixed>  $base
+     */
+    protected function coeditRebase(array $base): void
+    {
+        foreach (array_keys($this->coeditSaved) as $field) {
+            if (ThreeWayMerge::normalize($base[$field] ?? null) !== ThreeWayMerge::normalize($this->coeditBase[$field] ?? null)) {
+                unset($this->coeditSaved[$field]);
+            }
+        }
+
+        $this->coeditBase = $base;
+    }
+
+    /** A hash, not the value: the form may hold a password the save stored hashed. */
+    protected function coeditPrint(mixed $value): string
+    {
+        return hash_hmac('sha256', ThreeWayMerge::normalize($value), (string) config('app.key'));
     }
 
     /**
@@ -379,7 +453,7 @@ trait InteractsWithCoEdit
             $this->coeditVersion = $version;
         }
 
-        $this->dispatch('coedit-acknowledged', version: $version)->to(Presence::class);
+        $this->dispatch('coedit-acknowledged', version: $version, room: PresenceStore::opaque($this->getCoEditRoom()))->to(Presence::class);
         $this->js("window.dispatchEvent(new CustomEvent('filament-coedit-seen'))");
     }
 }

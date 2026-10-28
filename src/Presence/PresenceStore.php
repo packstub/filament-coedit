@@ -46,13 +46,14 @@ class PresenceStore
     }
 
     /**
-     * The room as the browser may see it: a hash, so a page never reveals the
-     * database name (a tenant's, or an SQLite file's path) or the model class.
-     * The store accepts a room in either form.
+     * The room as the browser may see it: keyed with the app key, so a page never
+     * reveals, or lets anyone confirm a guess of, the database name (a tenant's,
+     * or an SQLite file's path), the model class or the key. The store accepts a
+     * room in either form.
      */
     public static function opaque(string $room): string
     {
-        return preg_match('/^#[0-9a-f]{40}$/', $room) ? $room : '#'.sha1($room);
+        return preg_match('/^#[0-9a-f]{64}$/', $room) ? $room : '#'.hash_hmac('sha256', $room, (string) config('app.key'));
     }
 
     public static function colorFor(string $user): string

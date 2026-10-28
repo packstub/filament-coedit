@@ -122,7 +122,7 @@ it('skips a beat instead of failing when the room stays locked', function (): vo
 
     $this->store->touch('room', 'tab-a', who('ana', 'Ana'), 'editing');
 
-    $lock = Cache::lock('filament-coedit:'.sha1('room').':lock', 60);
+    $lock = Cache::lock('filament-coedit:'.substr(PresenceStore::opaque('room'), 1).':lock', 60);
     $lock->get();
 
     // Neither the page render nor the heartbeat may fail: they get the room as it is.
@@ -142,7 +142,7 @@ it('skips a beat instead of failing when the room stays locked', function (): vo
 it('records a save even when its entry stays locked, since the save is already committed', function (): void {
     Sleep::fake(syncWithCarbon: true);
 
-    Cache::lock('filament-coedit:'.sha1('room').':save:lock', 60)->get();
+    Cache::lock('filament-coedit:'.substr(PresenceStore::opaque('room'), 1).':save:lock', 60)->get();
 
     expect($this->store->recordSave('room', who('ana', 'Ana'), ['Title']))->toMatchArray(['name' => 'Ana', 'fields' => ['Title']])
         ->and($this->store->lastSave('room'))->toMatchArray(['name' => 'Ana']);
