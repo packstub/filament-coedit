@@ -183,3 +183,26 @@ it('refuses to save a locale the page does not offer', function (): void {
     $page = $this->page->fresh();
     expect($page->slug)->toBe('by-ana')->and($page->getTranslations('title'))->not->toHaveKey('xx');
 });
+
+it('merges again instead of settling a conflict after the locale changed under the dialog', function (): void {
+    $ion = translatedPageAs($this->ion, $this->page);
+
+    translatedPageAs($this->ana, $this->page)->fillForm(['title' => 'Golden autumn'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Late autumn'])->call('save')->assertActionMounted('coeditResolve');
+
+    $ion->set('activeLocale', 'ro')->setActionData(['choices' => [FormFields::key('title@en') => 'theirs']])->callMountedAction();
+
+    expect($ion->instance()->coeditConflicts)->toBe([])
+        ->and($this->page->fresh()->getTranslation('title', 'en'))->toBe('Golden autumn');
+});
+
+it('refuses to pull into a locale the page does not offer', function (): void {
+    $ion = translatedPageAs($this->ion, $this->page);
+
+    translatedPageAs($this->ana, $this->page)->fillForm(['slug' => 'by-ana'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->set('activeLocale', 'xx')->call('coeditPull')->assertStatus(422);
+});

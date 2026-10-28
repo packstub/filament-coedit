@@ -74,6 +74,10 @@ trait InteractsWithCoEdit
      */
     protected array $coeditAside = [];
 
+    /** The active locale when the conflicts were found, on a translatable page. */
+    #[Locked]
+    public ?string $coeditConflictLocale = null;
+
     /** @var list<string> fields both sides changed, waiting for the dialog */
     #[Locked]
     public array $coeditConflicts = [];
@@ -192,6 +196,8 @@ trait InteractsWithCoEdit
      */
     public function coeditPull(): void
     {
+        $this->coeditCheckLocale();
+
         try {
             $theirs = $this->coeditTheirs();
         } catch (ModelNotFoundException) {
@@ -262,6 +268,14 @@ trait InteractsWithCoEdit
             return;
         }
 
+        // Their values wait in the shape of the locale the conflict was found in; after a
+        // switch (only possible from the browser) the next save merges again instead.
+        if ($this->coeditConflictLocale !== $this->coeditActiveLocale()) {
+            $this->coeditTheirs = $this->coeditTheirsAside = $this->coeditConflicts = [];
+
+            return;
+        }
+
         $settled = [];
 
         foreach ($this->coeditConflicts as $field) {
@@ -295,8 +309,7 @@ trait InteractsWithCoEdit
      */
     protected function coeditMergeBeforeSave(): bool
     {
-        // The active locale comes from the browser: one the page does not offer is never filled, so nothing could be merged.
-        abort_if($this->getCoEditTranslatableAttributes() !== [] && ! in_array($this->activeLocale, $this->getTranslatableLocales(), strict: true), 422);
+        $this->coeditCheckLocale();
 
         try {
             $theirs = $this->coeditTheirs();
@@ -345,6 +358,7 @@ trait InteractsWithCoEdit
         $this->coeditConflicts = $result->conflicts;
         $this->coeditTheirs = Arr::only($theirs, $result->conflicts);
         $this->coeditTheirsAside = Arr::only($this->coeditAside, $result->conflicts);
+        $this->coeditConflictLocale = $this->coeditActiveLocale();
 
         if ($this->coeditResolving) {
             // A newer save conflicts while the dialog is submitting: Filament would
@@ -607,6 +621,22 @@ trait InteractsWithCoEdit
         }
 
         return $fields;
+    }
+
+    protected function coeditActiveLocale(): ?string
+    {
+        return $this->getCoEditTranslatableAttributes() === [] ? null : (string) $this->activeLocale;
+    }
+
+    /**
+     * The active locale comes from the browser: one the page does not offer is never
+     * filled, so nothing could be merged against it.
+     */
+    protected function coeditCheckLocale(): void
+    {
+        if ($this->getCoEditTranslatableAttributes() !== [] && method_exists($this, 'getTranslatableLocales')) {
+            abort_unless(in_array($this->activeLocale, $this->getTranslatableLocales(), strict: true), 422);
+        }
     }
 
     /**
