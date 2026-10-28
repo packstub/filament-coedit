@@ -8,6 +8,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 /**
  * Who is on which record, kept in the cache.
@@ -161,6 +162,38 @@ class PresenceStore
             // record run one at a time already; the lock only orders stray callers.
             return $record();
         }
+    }
+
+    /**
+     * Keep a value on the server for this person and record until it is taken
+     * once, behind a random token the browser holds (a modal's kept fields
+     * between two submits): a token copied to another record, another person or
+     * a later submit finds nothing.
+     *
+     * @param  array<mixed>  $value
+     */
+    public function hold(string $room, string $user, array $value): string
+    {
+        $token = Str::random(40);
+
+        $this->cache()->put($this->heldKey($room, $user, $token), $value, max(60, (int) config('filament-coedit.remember_saves_for', 3600)));
+
+        return $token;
+    }
+
+    /**
+     * @return array<mixed>|null
+     */
+    public function take(string $room, string $user, string $token): ?array
+    {
+        $value = $token === '' ? null : $this->cache()->pull($this->heldKey($room, $user, $token));
+
+        return is_array($value) ? $value : null;
+    }
+
+    protected function heldKey(string $room, string $user, string $token): string
+    {
+        return $this->key($room).':held:'.hash('sha256', $user.'|'.$token);
     }
 
     /**

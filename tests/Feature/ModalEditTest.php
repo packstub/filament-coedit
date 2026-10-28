@@ -155,7 +155,7 @@ it('never tells kept fields the browser made up', function (): void {
     $ion->fillForm(['title' => ''])->callMountedAction();
     app(DeferredCallbackCollection::class)->invoke();
 
-    $ion->fillForm([CoEditAction::STATE_KEY.'.kept.fields' => ['price', 'status'], CoEditAction::STATE_KEY.'.kept.name' => 'Mallory', 'title' => 'X'])
+    $ion->fillForm([CoEditAction::STATE_KEY.'.kept' => str_repeat('a', 40), 'title' => 'X'])
         ->callMountedAction()
         ->assertHasNoFormErrors();
 
@@ -174,7 +174,7 @@ it('never tells a kept list replayed from another record', function (): void {
     app(DeferredCallbackCollection::class)->invoke();
 
     $kept = $ion->instance()->mountedActions[0]['data'][CoEditAction::STATE_KEY]['kept'];
-    expect($kept['fields'])->toBe([['price', 'Ana']]);
+    expect($kept)->toBeString()->toHaveLength(40);
 
     $this->actingAs($this->ion);
     openModalAs($this->ion, $other)
@@ -183,6 +183,31 @@ it('never tells a kept list replayed from another record', function (): void {
         ->assertHasNoFormErrors();
 
     Event::assertNotDispatched(ChangesMerged::class);
+});
+
+it('never tells a kept list twice, replayed on the same record', function (): void {
+    Event::fake([ChangesMerged::class]);
+
+    $ion = openModalAs($this->ion, $this->article);
+    anaSavesInModal($this->article, ['price' => 50]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->callMountedAction()->assertHasFormErrors(['title']);
+    app(DeferredCallbackCollection::class)->invoke();
+
+    $state = $ion->instance()->mountedActions[0]['data'][CoEditAction::STATE_KEY];
+
+    $ion->fillForm(['title' => 'X'])->callMountedAction()->assertHasNoFormErrors();
+    app(DeferredCallbackCollection::class)->invoke();
+
+    Event::assertDispatchedTimes(ChangesMerged::class, 1);
+
+    openModalAs($this->ion, $this->article)
+        ->fillForm([CoEditAction::STATE_KEY.'.kept' => $state['kept'], CoEditAction::STATE_KEY.'.version' => $state['version'], 'title' => 'Y'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Event::assertDispatchedTimes(ChangesMerged::class, 1);
 });
 
 it('leaves ignored fields to plain Filament in the modal', function (): void {

@@ -147,3 +147,13 @@ it('records a save even when its entry stays locked, since the save is already c
     expect($this->store->recordSave('room', who('ana', 'Ana'), ['Title']))->toMatchArray(['name' => 'Ana', 'fields' => ['Title']])
         ->and($this->store->lastSave('room'))->toMatchArray(['name' => 'Ana']);
 });
+
+it('holds a value for one take, by the same person on the same record only', function (): void {
+    $token = $this->store->hold('article:1', 'user:1', ['price' => 'Ana']);
+
+    expect($this->store->take('article:2', 'user:1', $token))->toBeNull()
+        ->and($this->store->take('article:1', 'user:2', $token))->toBeNull()
+        ->and($this->store->take('article:1', 'user:1', ''))->toBeNull()
+        ->and($this->store->take('article:1', 'user:1', $token))->toBe(['price' => 'Ana'])
+        ->and($this->store->take('article:1', 'user:1', $token))->toBeNull();
+});

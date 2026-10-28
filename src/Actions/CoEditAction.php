@@ -52,7 +52,7 @@ class CoEditAction
         $beforeFormValidated = $hook('beforeFormValidated');
         $save = $hook('action');
 
-        /** @var array<string, array{labels: list<string>, events: list<ChangesMerged>, release: Closure(): void}> $merged  per record, this request */
+        /** @var array<string, array{labels: list<string>, events: list<ChangesMerged>, held: ?string, release: Closure(): void}> $merged  per record, this request */
         $merged = [];
 
         $action->afterFormFilled(function (EditAction $action, Model $record) use ($afterFormFilled, $ignore): void {
@@ -137,6 +137,11 @@ class CoEditAction
             // Announced and unlocked once the update is committed.
             if ($merge) {
                 $record->getConnection()->afterCommit(function () use ($room, $merge): void {
+                    // Told now: what this submit held for a failed save is spent.
+                    if ($merge['held'] !== null) {
+                        CoEdit::store()->take($room, CoEdit::who()['user'], $merge['held']);
+                    }
+
                     array_map(event(...), $merge['events']);
 
                     if ($merge['labels'] !== []) {
@@ -178,7 +183,7 @@ class CoEditAction
      * Merge the database into the action's data, or halt once on a conflict.
      *
      * @param  list<string>  $ignore
-     * @return array{labels: list<string>, events: list<ChangesMerged>} labels of the fields this save changes, and what it took from the others
+     * @return array{labels: list<string>, events: list<ChangesMerged>, held: ?string} labels of the fields this save changes, and what it took from the others
      */
     protected static function merge(EditAction $action, Schema $schema, Model $record, array $ignore): array
     {
@@ -189,7 +194,7 @@ class CoEditAction
         if (! is_array($state) || ! is_array($state['base'] ?? null)) {
             self::misconfigured('its form was filled without coEdit()\'s fingerprint. Call afterFormFilled() before coEdit(), not after it.');
 
-            return ['labels' => self::labelsOfChanged($schema, [], $mine), 'events' => []];
+            return ['labels' => self::labelsOfChanged($schema, [], $mine), 'events' => [], 'held' => null];
         }
 
         $names = FormFields::names($schema, $ignore);
@@ -262,10 +267,10 @@ class CoEditAction
         if ($conflicts === []) {
             // The base moves with the form: a save that stops after this (a validation
             // error, a halting before()) must not see their values as yours next time.
-            $raw[self::STATE_KEY] = [...$state, 'base' => self::pack($base), 'exact' => self::pack($exact), 'kept' => self::sign($keep, $room, (int) ($state['version'] ?? 0))];
+            $raw[self::STATE_KEY] = [...$state, 'base' => self::pack($base), 'exact' => self::pack($exact), 'kept' => $held = self::hold($keep, $room)];
             $schema->rawState($raw);
 
-            return ['labels' => self::labelsOfChanged($schema, $loaded, array_diff_key($mine, array_flip($taken))), 'events' => $events];
+            return ['labels' => self::labelsOfChanged($schema, $loaded, array_diff_key($mine, array_flip($taken))), 'events' => $events, 'held' => $held];
         }
 
         ConflictDetected::dispatch($record, auth()->user(), $conflicts, $name);
@@ -277,7 +282,7 @@ class CoEditAction
         }
 
         $version = (int) (CoEdit::store()->lastSave($room)['version'] ?? 0);
-        $raw[self::STATE_KEY] = ['version' => $version, 'base' => self::pack($base), 'exact' => self::pack($exact), 'kept' => self::sign($keep, $room, $version)];
+        $raw[self::STATE_KEY] = ['version' => $version, 'base' => self::pack($base), 'exact' => self::pack($exact), 'kept' => self::hold($keep, $room)];
         $schema->rawState($raw);
 
         $lines = array_map(
@@ -327,36 +332,18 @@ class CoEditAction
     }
 
     /**
-     * Signed with the app key, as the browser holds it and it ends up in an audit log:
-     * for this record, this person and this version of the modal's state only, so
-     * a list from one submit cannot be replayed on another.
+     * Kept on the server, the browser only holds a one-time token: the list ends up
+     * in an audit log, so it can be neither made up nor told twice.
      *
      * @param  array<string, string>  $kept  field => their name
-     * @return array{fields?: list<array{0: string, 1: string}>, signature?: string}
      */
-    protected static function sign(array $kept, string $room, int $version): array
+    protected static function hold(array $kept, string $room): ?string
     {
-        if ($kept === []) {
-            return [];
-        }
-
-        $pairs = array_map(fn (string $field, string $name): array => [$field, $name], array_keys($kept), $kept);
-
-        return ['fields' => $pairs, 'signature' => self::signature($pairs, $room, $version)];
+        return $kept === [] ? null : CoEdit::store()->hold($room, CoEdit::who()['user'], $kept);
     }
 
     /**
-     * @param  list<array{0: string, 1: string}>  $pairs
-     */
-    protected static function signature(array $pairs, string $room, int $version): string
-    {
-        $payload = json_encode([$room, CoEdit::who()['user'], $version, $pairs]) ?: '';
-
-        return hash_hmac('sha256', 'filament-coedit:kept:'.$payload, (string) config('app.key'));
-    }
-
-    /**
-     * What earlier submits of this modal kept from the others, when the signature holds.
+     * What earlier submits of this modal kept from the others, taken once.
      *
      * @param  array<mixed>  $state
      * @param  list<string>  $names
@@ -364,22 +351,14 @@ class CoEditAction
      */
     protected static function kept(array $state, array $names, string $room): array
     {
-        $kept = $state['kept'] ?? null;
+        $token = $state['kept'] ?? null;
+        $kept = is_string($token) ? (CoEdit::store()->take($room, CoEdit::who()['user'], $token) ?? []) : [];
 
-        if (! is_array($kept) || ! is_array($kept['fields'] ?? null) || ! is_string($kept['signature'] ?? null)) {
-            return [];
-        }
-
-        $pairs = array_values(array_filter(
-            $kept['fields'],
-            fn (mixed $pair): bool => is_array($pair) && array_is_list($pair) && count($pair) === 2 && is_string($pair[0]) && is_string($pair[1]),
-        ));
-
-        if (! hash_equals(self::signature($pairs, $room, (int) ($state['version'] ?? 0)), $kept['signature'])) {
-            return [];
-        }
-
-        return array_intersect_key(array_column($pairs, 1, 0), array_flip($names));
+        return array_filter(
+            array_intersect_key($kept, array_flip($names)),
+            fn (mixed $name, int|string $field): bool => is_string($name),
+            ARRAY_FILTER_USE_BOTH,
+        );
     }
 
     /**
