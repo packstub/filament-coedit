@@ -120,3 +120,19 @@ it('runs nothing after the save in a header action that stops at a conflict', fu
 
     expect($this->article->fresh())->title->toBe('Spring sale')->status->toBe('draft');
 });
+
+it('keeps the dialog open when Save is pressed again while a modal is open', function (string $open): void {
+    $ion = nestedPageAs($this->ion, $this->article);
+
+    nestedPageAs($this->ana, $this->article)->fillForm(['title' => 'Spring sale'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn']);
+
+    // Cmd+S reaches save() while any modal is open: the dialog itself, or another action's.
+    $open === 'the dialog' ? $ion->call('save') : $ion->mountAction('saveConfirmed');
+
+    $ion->call('save')->assertActionMounted('coeditResolve');
+
+    expect($this->article->fresh()->title)->toBe('Spring sale');
+})->with(['the dialog', 'a header action\'s modal']);

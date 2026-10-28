@@ -67,6 +67,9 @@ trait InteractsWithCoEdit
     #[Locked]
     public array $coeditSaveArguments = [true, true];
 
+    /** How many action calls this request is inside: a save from one stops it at a conflict. */
+    protected int $coeditCallingActions = 0;
+
     /** True while the dialog's own submit is saving, for this request only. */
     protected bool $coeditResolving = false;
 
@@ -107,6 +110,17 @@ trait InteractsWithCoEdit
     protected function getCoEditIgnoredFields(): array
     {
         return [];
+    }
+
+    public function callMountedAction(array $arguments = []): mixed
+    {
+        $this->coeditCallingActions++;
+
+        try {
+            return parent::callMountedAction($arguments);
+        } finally {
+            $this->coeditCallingActions--;
+        }
     }
 
     public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
@@ -293,15 +307,18 @@ trait InteractsWithCoEdit
             throw new Halt;
         }
 
-        if ($this->mountedActions === []) {
-            $this->mountAction('coeditResolve');
+        if ($this->coeditCallingActions === 0) {
+            // Called directly (the Save button, or Cmd+S while a modal is open).
+            $this->mountedActions === []
+                ? $this->mountAction('coeditResolve')
+                : $this->replaceMountedAction('coeditResolve');
 
             return false;
         }
 
-        // Started from another action (a header "Save and publish"): replace it, as
-        // Filament unmounts an action once it is done, and the dialog with it; and stop
-        // that action, so nothing it does after the save runs on a save that did not.
+        // Started from an action (a header "Save and publish"): replace it, as Filament
+        // unmounts an action once it is done, and the dialog with it; and stop that
+        // action, so nothing it does after the save runs on a save that did not.
         $this->replaceMountedAction('coeditResolve');
 
         throw new Halt;
