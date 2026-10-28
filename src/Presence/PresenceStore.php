@@ -45,6 +45,17 @@ class PresenceStore
         static::$roomResolver = $resolver;
     }
 
+    /**
+     * The room as the browser may see it: keyed with the app key, so a page never
+     * reveals, or lets anyone confirm a guess of, the database name (a tenant's,
+     * or an SQLite file's path), the model class or the key. The store accepts a
+     * room in either form.
+     */
+    public static function opaque(string $room): string
+    {
+        return preg_match('/^#[0-9a-f]{64}$/', $room) ? $room : '#'.hash_hmac('sha256', $room, (string) config('app.key'));
+    }
+
     public static function colorFor(string $user): string
     {
         return self::COLORS[crc32($user) % count(self::COLORS)];
@@ -127,7 +138,7 @@ class PresenceStore
     {
         $key = $this->key($room).':save';
 
-        return $this->locked($key, function () use ($key, $who, $fields): array {
+        $record = function () use ($key, $who, $fields): array {
             $save = [
                 // A clock, not a counter: when the entry expires the next save still
                 // numbers above every version an open page has already seen.
@@ -141,7 +152,15 @@ class PresenceStore
             $this->cache()->put($key, $save, (int) config('filament-coedit.remember_saves_for', 3600));
 
             return $save;
-        });
+        };
+
+        try {
+            return $this->locked($key, $record);
+        } catch (LockTimeoutException) {
+            // Runs after the save is committed, so it must not fail it. Saves of a
+            // record run one at a time already; the lock only orders stray callers.
+            return $record();
+        }
     }
 
     /**
@@ -207,15 +226,21 @@ class PresenceStore
     {
         $key = $this->key($room);
 
-        return $this->locked($key, function () use ($key, $change): array {
-            $members = $this->alive($change($this->alive($this->cache()->get($key, []))));
+        try {
+            return $this->locked($key, function () use ($key, $change): array {
+                $members = $this->alive($change($this->alive($this->cache()->get($key, []))));
 
-            $members === []
-                ? $this->cache()->forget($key)
-                : $this->cache()->put($key, $members, $this->timeout() * 3);
+                $members === []
+                    ? $this->cache()->forget($key)
+                    : $this->cache()->put($key, $members, $this->timeout() * 3);
 
-            return $members;
-        });
+                return $members;
+            });
+        } catch (LockTimeoutException) {
+            // Presence is best effort: a busy room skips this beat (the next one
+            // writes it) rather than failing the page or the heartbeat.
+            return $this->alive($this->cache()->get($key, []));
+        }
     }
 
     /**
@@ -293,7 +318,7 @@ class PresenceStore
 
     protected function key(string $room): string
     {
-        return 'filament-coedit:'.sha1($room);
+        return 'filament-coedit:'.substr(static::opaque($room), 1);
     }
 
     protected function timeout(): int

@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Sleep;
 use Packstub\CoEdit\Presence\PresenceStore;
 
 function who(string $id, string $name): array
@@ -113,4 +115,35 @@ it('never lets the timeout fall below two heartbeats', function (): void {
     $this->travel(10)->seconds();
 
     expect($this->store->members('article:1'))->toBe([]);
+});
+
+it('skips a beat instead of failing when the room stays locked', function (): void {
+    Sleep::fake(syncWithCarbon: true);
+
+    $this->store->touch('room', 'tab-a', who('ana', 'Ana'), 'editing');
+
+    $lock = Cache::lock('filament-coedit:'.substr(PresenceStore::opaque('room'), 1).':lock', 60);
+    $lock->get();
+
+    // Neither the page render nor the heartbeat may fail: they get the room as it is.
+    expect(array_column($this->store->touch('room', 'tab-b', who('ion', 'Ion'), 'editing'), 'name'))->toBe(['Ana']);
+
+    $this->store->leave('room', 'tab-a');
+
+    expect(array_column($this->store->members('room'), 'name'))->toBe(['Ana']);
+
+    $lock->release();
+
+    $this->store->touch('room', 'tab-b', who('ion', 'Ion'), 'editing');
+
+    expect(array_column($this->store->members('room'), 'name'))->toBe(['Ana', 'Ion']);
+});
+
+it('records a save even when its entry stays locked, since the save is already committed', function (): void {
+    Sleep::fake(syncWithCarbon: true);
+
+    Cache::lock('filament-coedit:'.substr(PresenceStore::opaque('room'), 1).':save:lock', 60)->get();
+
+    expect($this->store->recordSave('room', who('ana', 'Ana'), ['Title']))->toMatchArray(['name' => 'Ana', 'fields' => ['Title']])
+        ->and($this->store->lastSave('room'))->toMatchArray(['name' => 'Ana']);
 });

@@ -10,6 +10,7 @@ use Livewire\Attributes\On;
 use Livewire\Attributes\Renderless;
 use Livewire\Component;
 use Packstub\CoEdit\CoEdit;
+use Packstub\CoEdit\Presence\PresenceStore;
 
 /**
  * The avatars in the page header. Renders once; after that the browser asks
@@ -18,11 +19,16 @@ use Packstub\CoEdit\CoEdit;
  */
 class Presence extends Component
 {
+    /** Opaque (PresenceStore::opaque()): this is sent to the browser. */
     #[Locked]
     public string $room;
 
     #[Locked]
     public string $mode = 'viewing';
+
+    /** Where the avatars sit: a page header, or a modal edit (`EditAction::coEdit()`). */
+    #[Locked]
+    public string $context = 'page';
 
     /** One per open tab, so two tabs of the same person are two heartbeats. */
     #[Locked]
@@ -32,10 +38,11 @@ class Presence extends Component
     #[Locked]
     public int $version = 0;
 
-    public function mount(string $room, string $mode = 'viewing', int $version = 0): void
+    public function mount(string $room, string $mode = 'viewing', int $version = 0, string $context = 'page'): void
     {
-        $this->room = $room;
+        $this->room = PresenceStore::opaque($room);
         $this->mode = $mode === 'editing' ? 'editing' : 'viewing';
+        $this->context = $context === 'modal' ? 'modal' : 'page';
         $this->version = $version;
         $this->tab = Str::random(16);
     }
@@ -62,8 +69,13 @@ class Presence extends Component
      */
     #[Renderless]
     #[On('coedit-acknowledged')]
-    public function acknowledge(?int $version = null): void
+    public function acknowledge(?int $version = null, ?string $room = null): void
     {
+        // The page's merge reaches every avatar stack on it; a modal's is another record.
+        if ($room !== null && PresenceStore::opaque($room) !== $this->room) {
+            return;
+        }
+
         $latest = (int) (CoEdit::store()->lastSave($this->room)['version'] ?? 0);
 
         $this->version = max($this->version, min($version ?? $latest, $latest));
@@ -102,7 +114,10 @@ class Presence extends Component
         return view('filament-coedit::presence', [
             'config' => [
                 'heartbeat' => max(1, (int) config('filament-coedit.heartbeat', 4)) * 1000,
+                // null, 0 or false: never pause.
+                'idle' => ($idle = (int) config('filament-coedit.idle', 600)) > 0 ? $idle * 1000 : null,
                 'mode' => $this->mode,
+                'context' => $this->context,
                 'trackFields' => (bool) config('filament-coedit.track_fields', true),
                 'initial' => $this->snapshotWith($members),
                 'now' => now()->getTimestamp(),
@@ -113,10 +128,16 @@ class Presence extends Component
 
     /**
      * A state path from the browser ("data.title", "data.items.3f2a….name"), or nothing.
+     * A page reports fields of its own form, a modal those of the mounted action: a
+     * modal on the page edits another record, which the page's room must not show.
      */
     protected function sanitizeField(mixed $field): ?string
     {
         if (! is_string($field) || $this->mode !== 'editing' || ! config('filament-coedit.track_fields', true) || strlen($field) > 200) {
+            return null;
+        }
+
+        if (str_starts_with($field, 'mountedActions.') !== ($this->context === 'modal')) {
             return null;
         }
 

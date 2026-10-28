@@ -15,6 +15,7 @@ return [
         'title' => ':name hat diesen Datensatz gespeichert',
         'fields' => 'Geändert: :fields ·',
         'hint' => 'Beim Speichern bleiben deren Änderungen erhalten. Du wählst nur bei Feldern, die ihr beide geändert habt.',
+        'modal_hint' => 'Beim Speichern bleiben deren Änderungen erhalten. Bei einem Feld, das ihr beide geändert habt, siehst du zuerst deren Wert; speichere erneut, um deinen zu behalten.',
         'pull' => 'Änderungen übernehmen',
         'reload' => 'Neu laden',
         'dismiss' => 'Ausblenden',

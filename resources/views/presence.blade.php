@@ -7,6 +7,10 @@
     x-on:pagehide.window="leave()"
     x-on:pageshow.window="$event.persisted && resume()"
     x-on:filament-coedit-seen.window="save = null"
+    x-on:keydown.window="active()"
+    x-on:pointerdown.window="active()"
+    x-on:pointermove.window.throttle.5000ms="active()"
+    x-on:wheel.window.passive.throttle.5000ms="active()"
     class="fi-coedit"
     role="status"
     aria-live="polite"
@@ -39,10 +43,12 @@
                         <span x-text="ago(save.at)"></span>
                     </p>
                     @if ($config['mode'] === 'editing')
-                        <p class="fi-coedit-notice-hint">{{ __('filament-coedit::coedit.notice.hint') }}</p>
+                        <p class="fi-coedit-notice-hint">{{ __($config['context'] === 'modal' ? 'filament-coedit::coedit.notice.modal_hint' : 'filament-coedit::coedit.notice.hint') }}</p>
                     @endif
                     <div class="fi-coedit-notice-actions">
-                        @if ($config['mode'] === 'editing')
+                        @if ($config['mode'] === 'editing' && $config['context'] === 'modal')
+                            {{-- A modal's form is filled again only by reopening it; saving merges as on a page. --}}
+                        @elseif ($config['mode'] === 'editing')
                             <x-filament::button size="sm" x-on:click="pull()">
                                 {{ __('filament-coedit::coedit.notice.pull') }}
                             </x-filament::button>
@@ -73,6 +79,8 @@
         markers: [],
         skew: Math.floor(Date.now() / 1000) - config.now,
         clock: Date.now(),
+        activity: Date.now(),
+        idle: false,
 
         init() {
             // A modal autofocuses its first field before this component starts.
@@ -120,6 +128,14 @@
                 return this.schedule()
             }
 
+            // Nobody at the page: stop reporting in, so the session can expire as it
+            // would without Co-Edit. The first keypress or pointer move resumes.
+            if (config.idle && Date.now() - this.activity > config.idle) {
+                this.idle = true
+
+                return
+            }
+
             try {
                 const snapshot = await this.$wire.heartbeat(this.field)
 
@@ -139,8 +155,19 @@
             this.schedule()
         },
 
+        active() {
+            this.activity = Date.now()
+
+            if (this.idle) {
+                this.idle = false
+                this.schedule(0)
+            }
+        },
+
         visibilityChanged() {
             if (! document.hidden) {
+                this.activity = Date.now()
+                this.idle = false
                 this.schedule(0)
             }
         },
@@ -159,6 +186,8 @@
         // Back from the browser's back-forward cache after pagehide left the record.
         resume() {
             this.stopped = false
+            this.activity = Date.now()
+            this.idle = false
             this.schedule(0)
         },
 
@@ -191,17 +220,15 @@
 
         // A field's state path, from the first element inside it bound to Livewire:
         // `wire:model="data.title"`, or `$entangle('data.status')` for Alpine-driven fields.
+        // Only fields of this component's own form: the page's, or the modal's.
         pathOf(wrapper) {
             for (const element of [wrapper, ...wrapper.querySelectorAll('*')]) {
                 for (const attribute of element.attributes) {
-                    if (attribute.name.startsWith('wire:model')) {
-                        return attribute.value
-                    }
-
                     const entangled = attribute.value.match(/\$entangle\(\s*['"]([^'"]+)['"]/)
+                    const path = attribute.name.startsWith('wire:model') ? attribute.value : entangled?.[1]
 
-                    if (entangled) {
-                        return entangled[1]
+                    if (path) {
+                        return path.startsWith('mountedActions.') === (config.context === 'modal') ? path : null
                     }
                 }
             }

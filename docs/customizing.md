@@ -23,7 +23,7 @@ Listen for these to keep an audit trail or notify the person whose change was ke
 
 ## Your own save()
 
-If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open). Wrap both in `whileSaving()` so two saves of the record never run at the same time:
+If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open). Wrap both in `whileSaving()` so two saves of the record never run at the same time, and call `coeditAfterSave()` once your save is done so the next merge starts from it (without it, your own save comes back as a conflict):
 
 ```php
 use Packstub\CoEdit\CoEdit;
@@ -36,6 +36,9 @@ public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotificat
         }
 
         // your save
+
+        // Unless your save went through Filament's (parent::save()), which reports it:
+        $this->coeditAfterSave();
     });
 }
 ```
