@@ -164,3 +164,15 @@ it('compares text that only looks like a zoned date-time as text', function (str
     expect(ThreeWayMerge::normalize($text))->toBe(json_encode($text))
         ->and(ThreeWayMerge::changed(['note' => $text], ['note' => $text.'!'], exact: true))->toBe(['note']);
 })->with(['2026-13-01T10:30Z', '2026-10-28T25:30Z', '2026-10-28 99:99+02:00']);
+
+it('counts a leaf you retyped inside an array as your change', function (): void {
+    $result = ThreeWayMerge::merge(['m' => ['a' => '1.1', 'b' => 'x']], ['m' => ['a' => '1.10', 'b' => 'x']], ['m' => ['a' => '1.1', 'b' => 'y']]);
+
+    expect($result->conflicts)->toBe(['m'])->and($result->taken)->toBe([]);
+});
+
+it('still reads array items the browser did not retype as unchanged', function (): void {
+    expect(ThreeWayMerge::untouched([1, 2], ['1', '2']))->toBeTrue()
+        ->and(ThreeWayMerge::untouched(['price' => 10.0, 'on' => true], ['price' => 10, 'on' => true]))->toBeTrue()
+        ->and(ThreeWayMerge::untouched(['0f8fad5b-d9cb-469f-a165-70867728950e' => 'a.jpg'], ['7c9e6679-7425-40de-944b-e07fc1f90ae7' => 'a.jpg']))->toBeTrue();
+});

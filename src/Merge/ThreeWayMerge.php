@@ -58,11 +58,21 @@ class ThreeWayMerge
      * Whether the form still holds the base. Yours comes from the browser, so it
      * compares through the form noise, except text: an input sends what was typed,
      * so retyping "1.1" as "1.10" is your change, while "12" in an input the record
-     * filled with 12 is not.
+     * filled with 12 is not. A repeater, builder or key-value field compares exactly
+     * too, leaf by leaf: an item you leave alone keeps its types through the browser,
+     * and one you retype is text.
      */
     public static function untouched(mixed $base, mixed $mine): bool
     {
-        return self::normalize($base, exact: is_string($mine)) === self::normalize($mine, exact: is_string($mine));
+        $exact = self::typed($mine);
+
+        return self::normalize($base, $exact) === self::normalize($mine, $exact);
+    }
+
+    /** Whether a value from the browser compares exactly (see untouched()). */
+    public static function typed(mixed $mine): bool
+    {
+        return is_string($mine) || is_array($mine);
     }
 
     /**

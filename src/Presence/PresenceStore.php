@@ -7,6 +7,7 @@ use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
@@ -35,7 +36,8 @@ class PresenceStore
             return (string) (static::$roomResolver)($record);
         }
 
-        return $record->getConnection()->getDatabaseName().'|'.$record->getMorphClass().':'.$record->getKey();
+        // getMorphAlias(), not getMorphClass(): it never throws under an enforced morph map that leaves the model out.
+        return $record->getConnection()->getDatabaseName().'|'.Relation::getMorphAlias($record::class).':'.$record->getKey();
     }
 
     /**
