@@ -514,3 +514,20 @@ it('keeps a colleague\'s edit to a title that only looks like a number', functio
 
     expect($this->article->fresh())->title->toBe('1.10')->price->toBe('20.00');
 });
+
+it('asks when you retyped a title as the same-looking number and a colleague changed it', function (): void {
+    $this->article->update(['title' => '1.1']);
+
+    $this->actingAs($this->ion);
+    $ion = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+
+    $this->actingAs($this->ana);
+    livewire(EditArticle::class, ['record' => $this->article->getKey()])->fillForm(['title' => '2'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => '1.10'])->call('save')->assertActionMounted('coeditResolve');
+
+    $ion->setActionData(['choices' => ['title' => 'mine']])->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->title)->toBe('1.10');
+});

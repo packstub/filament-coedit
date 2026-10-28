@@ -14,7 +14,7 @@ class ConflictDetected
     use Dispatchable;
 
     /**
-     * @param  list<string>  $fields  top-level form field names
+     * @param  list<string>  $fields  form field paths (`title`, `meta.color` in a section with its own state path)
      * @param  string|null  $theirName  who saved last, when Co-Edit knows
      */
     public function __construct(

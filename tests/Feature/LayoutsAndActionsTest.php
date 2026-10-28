@@ -3,8 +3,10 @@
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Packstub\CoEdit\Presence\PresenceStore;
+use Packstub\CoEdit\Support\FormFields;
 use Packstub\CoEdit\Tests\Fixtures\Article;
 use Packstub\CoEdit\Tests\Fixtures\Category;
+use Packstub\CoEdit\Tests\Fixtures\EditArticle;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleWithNestedLayouts;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesWithNestedLayouts;
 
@@ -37,7 +39,7 @@ it('merges fields that take their path from a layout or a relationship group', f
     $this->actingAs($this->ion);
     $ion->fillForm(['title' => 'Autumn'])->call('save')->assertHasNoFormErrors()->assertNotified('Kept Ana\'s changes');
 
-    expect($this->article->fresh())->title->toBe('Autumn')->meta->toBe(['color' => 'red'])
+    expect($this->article->fresh())->title->toBe('Autumn')->meta->toBe(['color' => 'red', 'size' => null])
         ->and($this->category->fresh()->name)->toBe('Sport');
 });
 
@@ -49,7 +51,72 @@ it('asks about a field in a layout both changed', function (): void {
     $this->actingAs($this->ion);
     $ion->fillForm(['meta' => ['color' => 'green']])->call('save')->assertActionMounted('coeditResolve');
 
-    expect($ion->instance()->coeditConflicts)->toBe(['meta']);
+    expect($ion->instance()->coeditConflicts)->toBe(['meta.color']);
+
+    $ion->setActionData(['choices' => ['meta__color' => 'theirs']])->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->meta)->toBe(['color' => 'red', 'size' => null]);
+});
+
+it('merges two fields of one layout field by field', function (): void {
+    $ion = nestedPageAs($this->ion, $this->article);
+
+    nestedPageAs($this->ana, $this->article)->fillForm(['meta' => ['color' => 'red']])->call('save')->assertHasNoFormErrors();
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['meta' => ['size' => 'L']])->call('save')->assertHasNoFormErrors()->assertActionNotMounted('coeditResolve');
+
+    expect($this->article->fresh()->meta)->toBe(['color' => 'red', 'size' => 'L']);
+});
+
+it('compares a relationship group by its fields, not the related record\'s id', function (): void {
+    $ion = nestedPageAs($this->ion, $this->article);
+
+    // Someone points the article at another category with the same name.
+    $this->article->update(['category_id' => Category::query()->create(['name' => 'News'])->getKey()]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['category' => ['name' => 'Sport']])->call('save')->assertHasNoFormErrors()->assertActionNotMounted('coeditResolve');
+
+    expect($this->article->fresh()->category->name)->toBe('Sport');
+});
+
+it('merges two fields of one layout field by field in a modal', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(ListArticlesWithNestedLayouts::class)->mountAction(TestAction::make('edit')->table($this->article));
+
+    $this->actingAs($this->ana);
+    livewire(ListArticlesWithNestedLayouts::class)
+        ->mountAction(TestAction::make('edit')->table($this->article))
+        ->fillForm(['meta' => ['color' => 'red']])
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['meta' => ['size' => 'L']])->callMountedAction()->assertHasNoFormErrors()->assertNotNotified('Ana saved this record while you were editing');
+
+    expect($this->article->fresh()->meta)->toBe(['color' => 'red', 'size' => 'L']);
+});
+
+it('asks about one field of a layout both changed in a modal', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(ListArticlesWithNestedLayouts::class)->mountAction(TestAction::make('edit')->table($this->article));
+
+    $this->actingAs($this->ana);
+    livewire(ListArticlesWithNestedLayouts::class)
+        ->mountAction(TestAction::make('edit')->table($this->article))
+        ->fillForm(['meta' => ['color' => 'red']])
+        ->callMountedAction();
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['meta' => ['color' => 'green', 'size' => 'L']])->callMountedAction()->assertNotified();
+
+    expect($this->article->fresh()->meta)->toBe(['color' => 'red', 'size' => null]);
+
+    // Submitting again keeps yours.
+    $ion->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->meta)->toBe(['color' => 'green', 'size' => 'L']);
 });
 
 it('merges the same fields in a modal', function (): void {
@@ -66,7 +133,7 @@ it('merges the same fields in a modal', function (): void {
     $this->actingAs($this->ion);
     $ion->fillForm(['title' => 'Autumn'])->callMountedAction()->assertHasNoFormErrors();
 
-    expect($this->article->fresh())->title->toBe('Autumn')->meta->toBe(['color' => 'red'])
+    expect($this->article->fresh())->title->toBe('Autumn')->meta->toBe(['color' => 'red', 'size' => null])
         ->and($this->category->fresh()->name)->toBe('Sport');
 });
 
@@ -136,3 +203,15 @@ it('keeps the dialog open when Save is pressed again while a modal is open', fun
 
     expect($this->article->fresh()->title)->toBe('Spring sale');
 })->with(['the dialog', 'a header action\'s modal']);
+
+it('merges each field by its path, a repeater as a whole, and ignores everything under an ignored path', function (): void {
+    $this->article->update(['tags' => ['a', 'b']]);
+    $this->actingAs($this->ion);
+
+    $form = livewire(EditArticle::class, ['record' => $this->article->getKey()])->instance()->form;
+    $nested = nestedPageAs($this->ion, $this->article)->instance()->form;
+
+    expect(FormFields::names($form))->toBe(['title', 'status', 'price', 'is_featured', 'tags', 'category_id', 'labels', 'meta.color', 'cover', 'internal_note', 'views'])
+        ->and(FormFields::names($nested))->toBe(['title', 'price', 'meta.color', 'meta.size', 'category.name'])
+        ->and(FormFields::names($nested, ['meta', 'categ']))->toBe(['title', 'price', 'category.name']);
+});

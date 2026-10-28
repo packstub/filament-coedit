@@ -7,14 +7,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
- * Dispatched when the person settles a conflict, before the save it unblocks.
+ * Dispatched once the save the person settled a conflict for is committed.
  */
 class ConflictResolved
 {
     use Dispatchable;
 
     /**
-     * @param  array<string, 'mine'|'theirs'>  $choices  field name => the version kept
+     * @param  array<string, 'mine'|'theirs'>  $choices  field path => the version kept
      */
     public function __construct(
         public readonly Model $record,

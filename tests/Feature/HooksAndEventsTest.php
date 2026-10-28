@@ -1,6 +1,7 @@
 <?php
 
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Packstub\CoEdit\Events\ChangesMerged;
 use Packstub\CoEdit\Events\ConflictDetected;
@@ -58,6 +59,65 @@ it('dispatches ConflictDetected, then ConflictResolved with the choices', functi
     Event::assertDispatched(ConflictResolved::class, fn (ConflictResolved $event): bool => $event->choices === ['title' => 'theirs', 'price' => 'mine']);
 
     expect($this->article->fresh())->title->toBe('Ana')->price->toBe('2.00');
+});
+
+it('dispatches ChangesMerged only once the save went through', function (): void {
+    Event::fake([ChangesMerged::class]);
+
+    $ion = openAs($this->ion, $this->article);
+    openAs($this->ana, $this->article)->fillForm(['status' => 'review'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->call('save')->assertHasFormErrors(['title']);
+
+    Event::assertNotDispatched(ChangesMerged::class);
+
+    $ion->fillForm(['title' => 'X'])->call('save')->assertHasNoFormErrors();
+
+    Event::assertDispatchedTimes(ChangesMerged::class, 1);
+    Event::assertDispatched(ChangesMerged::class, fn (ChangesMerged $event): bool => $event->fields === ['status'] && $event->theirName === 'Ana');
+});
+
+it('dispatches ChangesMerged only once the transaction around the save commits', function (): void {
+    Event::fake([ChangesMerged::class]);
+
+    $ion = openAs($this->ion, $this->article);
+    openAs($this->ana, $this->article)->fillForm(['status' => 'review'])->call('save');
+
+    $this->actingAs($this->ion);
+
+    DB::beginTransaction();
+    $ion->fillForm(['title' => 'X'])->call('save')->assertHasNoFormErrors();
+
+    Event::assertNotDispatched(ChangesMerged::class);
+
+    DB::rollBack();
+
+    Event::assertNotDispatched(ChangesMerged::class);
+});
+
+it('dispatches ConflictResolved only for the save that went through', function (): void {
+    Event::fake([ConflictResolved::class]);
+
+    $ion = openAs($this->ion, $this->article);
+    openAs($this->ana, $this->article)->fillForm(['title' => 'Ana'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Ion'])->call('save')->assertActionMounted('coeditResolve');
+
+    // Ana saves the title again while Ion's dialog is open: his choice does not stand.
+    openAs($this->ana, $this->article)->fillForm(['title' => 'Ana again'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->setActionData(['choices' => ['title' => 'mine']])->callMountedAction()->assertActionMounted('coeditResolve');
+
+    Event::assertNotDispatched(ConflictResolved::class);
+
+    $ion->setActionData(['choices' => ['title' => 'theirs']])->callMountedAction()->assertActionNotMounted('coeditResolve');
+
+    Event::assertDispatchedTimes(ConflictResolved::class, 1);
+    Event::assertDispatched(ConflictResolved::class, fn (ConflictResolved $event): bool => $event->choices === ['title' => 'theirs']);
+    expect($this->article->fresh()->title)->toBe('Ana again');
 });
 
 it('dispatches nothing when nobody else saved', function (): void {

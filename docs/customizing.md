@@ -17,9 +17,9 @@ Listen for these to keep an audit trail or notify the person whose change was ke
 
 | Event | When | Payload |
 | --- | --- | --- |
-| `Packstub\CoEdit\Events\ChangesMerged` | A save kept fields only the other person changed | `record`, `user`, `fields`, `theirName` |
+| `Packstub\CoEdit\Events\ChangesMerged` | A save that kept fields only the other person changed is committed | `record`, `user`, `fields`, `theirName` |
 | `Packstub\CoEdit\Events\ConflictDetected` | A save found fields both changed | `record`, `user`, `fields`, `theirName` |
-| `Packstub\CoEdit\Events\ConflictResolved` | The person chose in the dialog | `record`, `user`, `choices` (field => `mine` or `theirs`) |
+| `Packstub\CoEdit\Events\ConflictResolved` | The save the person chose for in the dialog is committed | `record`, `user`, `choices` (field => `mine` or `theirs`) |
 
 ## Your own save()
 

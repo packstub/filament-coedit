@@ -79,7 +79,7 @@ it('merges a nested field as part of its top-level attribute', function (): void
     expect($this->article->fresh()->meta)->toBe(['color' => 'blue']);
 });
 
-it('labels a conflict on a nested attribute by its attribute name', function (): void {
+it('labels a conflict on a nested attribute by its field', function (): void {
     $ion = ionOpens($this->article);
 
     anaEdits($this->article, ['meta.color' => 'blue']);
@@ -87,7 +87,7 @@ it('labels a conflict on a nested attribute by its attribute name', function ():
     $ion->fillForm(['meta.color' => 'green'])
         ->call('save')
         ->assertActionMounted('coeditResolve')
-        ->assertMountedActionModalSee(['Meta', 'green', 'blue']);
+        ->assertMountedActionModalSee(['Colour', 'green', 'blue']);
 });
 
 it('does not take a file upload refilled with new item keys for a change', function (): void {
