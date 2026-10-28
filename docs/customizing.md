@@ -53,4 +53,4 @@ use Packstub\CoEdit\Presence\PresenceStore;
 PresenceStore::resolveRoomUsing(fn (Model $record): string => $record->team_id.':'.$record->getMorphClass().':'.$record->getKey());
 ```
 
-Presence on a custom Livewire page works the same way: use `HasPresence` and override `getCoEditRoom()` (keep it `protected`: a public method on a Livewire page can be called from the browser).
+Presence on another Filament page with a record and a header (a custom resource page) works the same way: use `HasPresence` and override `getCoEditRoom()` (keep it `protected`: a public method on a Livewire page can be called from the browser).

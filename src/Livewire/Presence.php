@@ -16,6 +16,8 @@ use Packstub\CoEdit\Presence\PresenceStore;
  * The avatars in the page header. Renders once; after that the browser asks
  * for the room every few seconds (and when its user changes field) and draws
  * the answer itself, so a heartbeat never re-renders anything.
+ *
+ * @internal
  */
 class Presence extends Component
 {

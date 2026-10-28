@@ -10,6 +10,8 @@ use Packstub\CoEdit\CoEdit;
  * The tab is closing: the browser sends a beacon here so the person leaves
  * the record at once instead of after the timeout. The URL is signed for one
  * room and one tab, so it can only ever remove the tab that asked.
+ *
+ * @internal
  */
 class LeaveController
 {

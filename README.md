@@ -96,7 +96,7 @@ use Filament\Actions\EditAction;
 ])
 ```
 
-The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. The merge runs inside the save, after your `before()`, so `before()` and `after()` go anywhere in the chain (and your `before()` also runs on a submit that stops at a conflict). An `action()` replacing the save itself goes before `coEdit()`. Set `afterFormFilled()` before `coEdit()`, which wraps it: one set after replaces the fingerprint the merge needs, and the save then fails loudly (in production: is reported) instead of overwriting anyone unseen. `coEdit(ignore: ['views'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
+The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. The merge runs before the form is validated, as on an edit page, so `before()` and `after()` go anywhere in the chain. Set `afterFormFilled()`, `beforeFormValidated()` and an `action()` replacing the save before `coEdit()`, which wraps them: one set after replaces a part of the merge, and the save then fails loudly (in production: is reported) instead of overwriting anyone unseen. `coEdit(ignore: ['views'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
 
 ### Leaving fields out
 
@@ -151,7 +151,7 @@ use Packstub\CoEdit\Presence\PresenceStore;
 PresenceStore::resolveRoomUsing(fn (Model $record): string => $record->team_id.':'.$record->getMorphClass().':'.$record->getKey());
 ```
 
-Presence on a custom Livewire page works the same way: use `HasPresence` and override `getCoEditRoom()` (keep it `protected`: a public method on a Livewire page can be called from the browser).
+Presence on another Filament page with a record and a header (a custom resource page) works the same way: use `HasPresence` and override `getCoEditRoom()` (keep it `protected`: a public method on a Livewire page can be called from the browser).
 
 ## How the merge works
 
@@ -167,7 +167,7 @@ When you save, Co-Edit reads the record again, fills it through your form and co
 
 ![The conflict dialog](docs/images/conflict.png)
 
-The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T` and the seconds, and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values. Whether someone else changed a field is decided without the number rule, because both versions come from the database: a version field going from `1.1` to `1.10` is their change, and kept. Your own edit is still read through the number rule, so if you retype `1.1` as `1.10` in a text field while someone else saves `2`, your change counts as none, theirs is kept and you're told. Each top-level form field is one unit. A repeater, a key-value field or a JSON column merges as a whole.
+The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T` and the seconds, and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values. Whether someone else changed a field is decided without the number rule, because both versions come from the database: a version field going from `1.1` to `1.10` is their change, and kept. Your own edit is still read through the number rule, so if you retype `1.1` as `1.10` in a text field while someone else saves `2`, your change counts as none, theirs is kept and you're told. Each top-level form field is one unit. A repeater, a key-value field or a JSON column merges as a whole, and so does a layout with its own `statePath()` or a relationship group (`Group::make()->relationship()`): if you both changed something in it, the dialog asks about the group as one value.
 
 The merge only covers fields on the form. Attributes the form doesn't edit, like timestamps, counters or columns a job updates, are never written by the merge and never reported.
 
@@ -194,6 +194,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 - Saves of the same record run one at a time (a lock in the cache store), so two people pressing Save in the same instant are merged one after the other instead of overwriting each other. A save that waits more than 10 seconds for another one stops with a "try again" notice and writes nothing. Without a store that supports locks the saves are not serialised.
 - To compare like with like, the record is filled through your page the same way it was loaded (`fillForm()`), so your `beforeFill()`/`afterFill()` hooks also run when a save merges and on **Get their changes**. Only the form data is put back afterwards, so keep those hooks to setting form values.
 - Translatable fields (Filament's spatie-translatable plugin) merge in the default locale: their version is filled the way the page loads, so someone editing another locale may be asked about a field against the default locale's text. Your active locale and the other locales' edits are kept.
+- Only Filament's own save merges. `saveFormComponentOnly()` (a field that saves its own section) writes as in plain Filament.
 - If someone deletes the record while you are editing, your save never recreates it: Filament can no longer load the record and the request stops before anything is written.
 - Names and avatars come from your panel (`getFilamentName()`, `getFilamentAvatarUrl()`), so people look the way they look everywhere else in the panel.
 

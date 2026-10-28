@@ -1,15 +1,19 @@
 <?php
 
 use Filament\Facades\Filament;
+use Filament\Support\ArrayRecord;
+use Filament\Tables\Table;
 use Illuminate\Cache\Events\RetrievingKey;
 use Illuminate\Cache\Events\RetrievingManyKeys;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Presence\PresenceStore;
+use Packstub\CoEdit\Tables\PresenceColumn;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\ViewArticle;
@@ -228,4 +232,20 @@ it('never tells the browser which user model or id the others are', function ():
     expect($member['name'])->toBe('Ana')
         ->and($member['user'])->toBe(PresenceStore::opaque(CoEdit::who($this->ana)['user']))
         ->and($member['user'])->not->toContain('User');
+});
+
+it('keeps presence in the configured cache store', function (): void {
+    config(['cache.stores.coedit' => ['driver' => 'array'], 'filament-coedit.cache_store' => 'coedit']);
+
+    presenceAs($this->ana, $this->room)->call('heartbeat');
+
+    expect(Cache::store('coedit')->get('filament-coedit:'.substr(PresenceStore::opaque($this->room), 1)))->toHaveCount(1)
+        ->and(Cache::store('array')->get('filament-coedit:'.substr(PresenceStore::opaque($this->room), 1)))->toBeNull();
+});
+
+it('leaves a row that is not a model empty', function (): void {
+    $this->actingAs($this->ion);
+    $column = PresenceColumn::make('presence')->table(Table::make(new ListArticles));
+
+    expect($column->record([ArrayRecord::getKeyName() => 'row-1', 'title' => 'An array row'])->getState())->toBeEmpty();
 });
