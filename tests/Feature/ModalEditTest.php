@@ -44,7 +44,7 @@ it('saves a modal edit as usual when nobody else touched the record', function (
 
     expect($this->article->fresh()->title)->toBe('Autumn launch')
         ->and(CoEdit::store()->lastSave(PresenceStore::room($this->article)))
-        ->toMatchArray(['version' => 1, 'name' => 'Ion', 'fields' => ['Title']]);
+        ->toMatchArray(['name' => 'Ion', 'fields' => ['Title']]);
 });
 
 it('keeps a colleague\'s change to a field you did not touch in the modal', function (): void {

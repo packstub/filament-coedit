@@ -164,7 +164,7 @@ When you save, Co-Edit reads the record again, fills it through your form and co
 
 ![The conflict dialog](docs/images/conflict.png)
 
-The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T` and the seconds, and the fresh UUID keys repeaters and file uploads get on every fill. Each top-level form field is one unit. A repeater, a key-value field or a JSON column merges as a whole.
+The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T` and the seconds, and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values. Each top-level form field is one unit. A repeater, a key-value field or a JSON column merges as a whole.
 
 The merge only covers fields on the form. Attributes the form doesn't edit, like timestamps, counters or columns a job updates, are never written by the merge and never reported.
 
@@ -176,7 +176,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 | --- | --- | --- |
 | `cache_store` | default store | Where presence lives, also set by `FILAMENT_COEDIT_CACHE_STORE`. Every server must share it, so in production use a shared store such as Redis or the database. |
 | `heartbeat` | `4` | Seconds between heartbeats. A page also reports at once when its user moves to another field. |
-| `timeout` | `20` | Seconds without a heartbeat before someone drops off. A closing tab leaves immediately. |
+| `timeout` | `20` | Seconds without a heartbeat before someone drops off. A closing tab leaves immediately. Never less than two heartbeats plus a second. |
 | `track_fields` | `true` | Show which field each person is in. Off, the avatars stay and the browser never reports focus. |
 | `remember_saves_for` | `3600` | Seconds that "Ana saved this record" is remembered for the people still on the record. The merge itself always compares against the database. |
 

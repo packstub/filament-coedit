@@ -24,7 +24,8 @@ return [
     |
     | Each open page reports in every `heartbeat` seconds (and at once when its
     | user moves to another field). Someone who stops reporting for `timeout`
-    | seconds — closed the tab, lost the network — drops off the record.
+    | seconds — closed the tab, lost the network — drops off the record. The
+    | timeout is never shorter than two heartbeats plus a second.
     |
     */
 

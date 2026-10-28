@@ -82,7 +82,10 @@ class ThreeWayMerge
      */
     public static function normalize(mixed $value): string
     {
-        return json_encode(self::canonical($value), JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION) ?: '';
+        $canonical = self::canonical($value);
+
+        // Invalid UTF-8 cannot be JSON: compare it byte for byte instead of as "".
+        return json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION) ?: serialize($canonical);
     }
 
     protected static function canonical(mixed $value): mixed
@@ -120,12 +123,16 @@ class ThreeWayMerge
                 return null;
             }
 
-            if (is_numeric($value) && ! preg_match('/^0\d/', $value)) {
-                return self::number($value + 0);
+            // Plain decimals only ("12", "10.00", "-3.5"), compared digit by digit: "+12",
+            // "1e3", "12 " and leading zeros stay text, and long ids never pass through a float.
+            if (preg_match('/^-?(0|[1-9]\d*)(\.\d+)?$/', $value)) {
+                return self::decimal($value);
             }
 
-            if (preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?/', $value)) {
-                return substr(str_replace('T', ' ', $value), 0, 16).(strlen($value) >= 19 ? substr($value, 16, 3) : ':00');
+            // A whole date-time, with or without the T, seconds, fraction and zone
+            // (as Laravel serialises a cast); a text that merely starts with one is text.
+            if (preg_match('/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/', $value, $match)) {
+                return $match[1].' '.$match[2].(($match[3] ?? '') !== '' ? $match[3] : ':00');
             }
 
             return $value;
@@ -153,6 +160,18 @@ class ThreeWayMerge
 
     protected static function number(int|float $value): string
     {
-        return rtrim(rtrim(number_format((float) $value, 10, '.', ''), '0'), '.') ?: '0';
+        return is_int($value) ? (string) $value : self::decimal(number_format($value, 10, '.', ''));
+    }
+
+    /**
+     * "10.50" → "10.5", "10.00" → "10", "-0.0" → "0".
+     */
+    protected static function decimal(string $value): string
+    {
+        if (str_contains($value, '.')) {
+            $value = rtrim(rtrim($value, '0'), '.');
+        }
+
+        return $value === '-0' || $value === '' ? '0' : $value;
     }
 }

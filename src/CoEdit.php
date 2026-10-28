@@ -5,6 +5,7 @@ namespace Packstub\CoEdit;
 use Filament\Facades\Filament;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Packstub\CoEdit\Presence\PresenceStore;
 
 class CoEdit
@@ -23,7 +24,9 @@ class CoEdit
         }
 
         return [
-            'user' => (string) $user->getAuthIdentifier(),
+            // The model type too: admin #1 and customer #1 of two panels are two people.
+            // getMorphAlias(), not getMorphClass(): it never throws under an enforced morph map.
+            'user' => Relation::getMorphAlias($user::class).':'.$user->getAuthIdentifier(),
             'name' => Filament::getUserName($user),
             'avatar' => Filament::getUserAvatarUrl($user),
         ];

@@ -32,4 +32,11 @@ First release.
 - The conflict dialog names related records through the select's own relationship query (`modifyQueryUsing`), so a key sent from the browser never reveals a record the field would not offer.
 - `PresenceColumn` reads the whole page of rows from the cache at once instead of once per row; a heartbeat reads the room once instead of twice.
 - A presence component that goes away (a modal closing, SPA navigation) stops for good: a heartbeat still in flight cannot bring the tab back, and its timers and Livewire hook are released. A page restored from the back-forward cache reports in again.
+- Save versions are a clock, not a counter, so a save after the last one was forgotten (`remember_saves_for`) is still announced to pages open since before.
+- People are told apart by user model and key, so admin #1 and customer #1 on two panels are two people.
+- `timeout` is never shorter than two heartbeats plus a second.
+- "Their" version is filled the way the page fills itself (`fillForm()`, with `beforeFill`/`afterFill` and any override), so a value a hook sets is never mistaken for someone else's change and reverted.
+- Value comparison is stricter where it used to be too lenient: a text that starts with a date-time is compared in full, only plain decimals count as numbers (`+40123`, `1e3`, `12 ` stay text), long numeric ids are compared digit by digit, and invalid UTF-8 is compared byte for byte.
+- Names are escaped in notifications.
+- Works under `Relation::enforceMorphMap()` whether or not the user model is mapped.
 - Requires Filament 4.13.3+ or 5.8.3+, the first releases past the published multi-factor authentication advisories.

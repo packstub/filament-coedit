@@ -208,7 +208,7 @@ class CoEditAction
             ChangesMerged::dispatch($record, auth()->user(), $taken, $name);
 
             Notification::make()
-                ->title(__('filament-coedit::coedit.taken.title', ['name' => $name]))
+                ->title(__('filament-coedit::coedit.taken.title', ['name' => e($name)]))
                 ->body(__('filament-coedit::coedit.taken.body', ['fields' => FormFields::labels($schema, $taken)]))
                 ->info()
                 ->send();
@@ -236,7 +236,7 @@ class CoEditAction
         );
 
         Notification::make()
-            ->title(__('filament-coedit::coedit.conflict.heading', ['name' => $name]))
+            ->title(__('filament-coedit::coedit.conflict.heading', ['name' => e($name)]))
             ->body(new HtmlString(e(__('filament-coedit::coedit.modal.body', ['name' => $name])).'<br>'.implode('<br>', $lines)))
             ->warning()
             ->persistent()
