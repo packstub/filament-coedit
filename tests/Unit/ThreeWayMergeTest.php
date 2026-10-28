@@ -68,12 +68,21 @@ it('sees through the type noise forms add', function (mixed $a, mixed $b): void 
         ['7c9e6679-7425-40de-944b-e07fc1f90ae7' => ['name' => 'news']],
     ],
     'object key order' => [['a' => 1, 'b' => 2], ['b' => 2, 'a' => 1]],
+    'serialised datetime cast and form value' => ['2026-10-21T10:30:00.000000Z', '2026-10-21 10:30:00'],
+    'negative decimal and float' => ['-3.50', -3.5],
+    'negative zero' => ['-0.0', 0],
 ]);
 
 it('still tells real differences apart', function (mixed $a, mixed $b): void {
     expect(ThreeWayMerge::normalize($a))->not->toBe(ThreeWayMerge::normalize($b));
 })->with([
     'different numbers' => ['10', '10.5'],
+    'texts that start with the same date-time' => ['2026-10-28 10:00 called, no answer', '2026-10-28 10:00 called, nothing. Wrote back.'],
+    'a phone number and the same digits' => ['+40123', '40123'],
+    'a number with a space' => ['12 ', '12'],
+    'exponent and its value' => ['1e3', '1000'],
+    'long ids past float precision' => ['9007199254740993', '9007199254740992'],
+    'two different invalid UTF-8 strings' => ["caf\xE9", "caf\xE8"],
     'zero and null' => [0, null],
     'leading zeros stay text' => ['007', '7'],
     'list order' => [['a', 'b'], ['b', 'a']],
@@ -89,4 +98,13 @@ it('lists the changed fields between two versions', function (): void {
         ['title' => 'A', 'price' => '10.00', 'status' => 'draft'],
         ['title' => 'B', 'price' => 10, 'status' => 'draft', 'tags' => ['x']],
     ))->toBe(['title', 'tags']);
+});
+
+it('keeps their edit to a note that starts with a date-time', function (): void {
+    $note = '2026-10-28 10:00 called, no answer';
+
+    $result = ThreeWayMerge::merge(['note' => $note], ['note' => $note], ['note' => $note.' Wrote back.']);
+
+    expect($result->taken)->toBe(['note'])
+        ->and($result->data['note'])->toBe($note.' Wrote back.');
 });

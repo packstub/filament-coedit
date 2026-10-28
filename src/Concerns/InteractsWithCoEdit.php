@@ -240,7 +240,7 @@ trait InteractsWithCoEdit
             ChangesMerged::dispatch($this->getRecord(), auth()->user(), $result->taken, $name);
 
             Notification::make()
-                ->title(__('filament-coedit::coedit.taken.title', ['name' => $name]))
+                ->title(__('filament-coedit::coedit.taken.title', ['name' => e($name)]))
                 ->body(__('filament-coedit::coedit.taken.body', ['fields' => FormFields::labels($this->form, $result->taken)]))
                 ->info()
                 ->send();
@@ -317,7 +317,9 @@ trait InteractsWithCoEdit
 
         $record->refresh();
 
-        $this->form->fill($this->mutateFormDataBeforeFill($record->attributesToArray()));
+        // The way the page filled itself at mount (beforeFill/afterFill hooks and any
+        // fillForm() override included), so a value set there is no change of theirs.
+        $this->fillForm();
         $theirs = $this->coeditFields($this->data ?? []);
         $this->data = $mine;
 
@@ -339,7 +341,7 @@ trait InteractsWithCoEdit
     protected function coeditNotifyDeleted(): void
     {
         Notification::make()
-            ->title(__('filament-coedit::coedit.deleted', ['name' => $this->coeditTheirName()]))
+            ->title(__('filament-coedit::coedit.deleted', ['name' => e($this->coeditTheirName())]))
             ->danger()
             ->persistent()
             ->send();

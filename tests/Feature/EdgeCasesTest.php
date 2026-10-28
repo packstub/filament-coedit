@@ -3,6 +3,7 @@
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Sleep;
 use Packstub\CoEdit\CoEdit;
@@ -13,6 +14,7 @@ use Packstub\CoEdit\Support\FormFields;
 use Packstub\CoEdit\Tests\Fixtures\Article;
 use Packstub\CoEdit\Tests\Fixtures\Category;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
+use Packstub\CoEdit\Tests\Fixtures\EditArticleFillingPrice;
 use Packstub\CoEdit\Tests\Fixtures\Label;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\NamedUser;
@@ -300,4 +302,39 @@ it('tells apart two people of different user models with the same id', function 
     $admin->forceFill(['id' => $this->ion->getKey()]);
 
     expect(CoEdit::who($admin)['user'])->not->toBe(CoEdit::who($this->ion)['user']);
+});
+
+it('names people under an enforced morph map that leaves the user model out', function (): void {
+    Relation::enforceMorphMap(['article' => Article::class]);
+
+    try {
+        expect(CoEdit::who($this->ion)['user'])->toBe($this->ion::class.':'.$this->ion->getKey());
+    } finally {
+        Relation::requireMorphMap(false);
+        Relation::morphMap([], merge: false);
+    }
+});
+
+it('fills their version through the page\'s own fill hooks', function (): void {
+    $this->actingAs($this->ion);
+
+    livewire(EditArticleFillingPrice::class, ['record' => $this->article->getKey()])
+        ->assertSet('data.price', 99)
+        ->fillForm(['title' => 'Autumn launch'])
+        ->call('save')
+        ->assertNotNotified('Kept Someone\'s changes');
+
+    expect($this->article->fresh())->title->toBe('Autumn launch')->price->toBe('99.00');
+});
+
+it('shows a name as text in the notifications, never as markup', function (): void {
+    $mallory = user('<a href="https://example.com">Ana</a>');
+
+    $ion = editPageAs($this->ion, $this->article);
+    editPageAs($mallory, $this->article)->fillForm(['status' => 'review'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn launch'])
+        ->call('save')
+        ->assertNotified(__('filament-coedit::coedit.taken.title', ['name' => e('<a href="https://example.com">Ana</a>')]));
 });

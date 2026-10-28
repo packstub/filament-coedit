@@ -164,7 +164,7 @@ When you save, Co-Edit reads the record again, fills it through your form and co
 
 ![The conflict dialog](docs/images/conflict.png)
 
-The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T` and the seconds, and the fresh UUID keys repeaters and file uploads get on every fill. Each top-level form field is one unit. A repeater, a key-value field or a JSON column merges as a whole.
+The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T` and the seconds, and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values. Each top-level form field is one unit. A repeater, a key-value field or a JSON column merges as a whole.
 
 The merge only covers fields on the form. Attributes the form doesn't edit, like timestamps, counters or columns a job updates, are never written by the merge and never reported.
 
