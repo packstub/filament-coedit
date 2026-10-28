@@ -51,7 +51,7 @@ class CoEditServiceProvider extends PackageServiceProvider
 
         // No session or CSRF token on a beacon; the signature is the authorisation.
         Route::post('filament-coedit/leave', LeaveController::class)
-            ->middleware(ValidateSignature::class.':relative')
+            ->middleware([...(array) config('filament-coedit.leave_middleware', []), ValidateSignature::class.':relative'])
             ->name('filament-coedit.leave');
 
         FilamentAsset::register([

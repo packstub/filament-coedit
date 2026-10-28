@@ -72,4 +72,20 @@ return [
 
     'track_fields' => true,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Leave route middleware
+    |--------------------------------------------------------------------------
+    |
+    | A closing tab tells the server it left through a small signed request to
+    | `filament-coedit/leave`, outside your panel's middleware. If presence
+    | lives in a cache your tenancy scopes per tenant, add the middleware that
+    | identifies the tenant here (stancl/tenancy: InitializeTenancyByDomain or
+    | InitializeTenancyBySubdomain); without it the person drops off after
+    | `timeout` instead of at once.
+    |
+    */
+
+    'leave_middleware' => [],
+
 ];

@@ -31,7 +31,7 @@ logins to 5 a minute per IP, so wait a minute between runs.
   versioned "last save" per room (who, when, field labels).
 - `src/Concerns/InteractsWithCoEdit.php` (edit pages) / `HasPresence.php` (view pages). The trait overrides
   `save()` and calls `parent::save()`; the merge base is the form data at mount (`mountInteractsWithCoEdit`),
-  limited to top-level field names. "Theirs" is computed by `$record->refresh()`, `form->fill()` through
+  keyed by field path (`meta.color`; a repeater's items fold into it; a translated attribute is one key per locale, `title@ro`). "Theirs" is computed by `$record->refresh()`, `form->fill()` through
   `mutateFormDataBeforeFill()`, capture, then restoring `$this->data`, so all three versions share the form's
   representation. `coeditAfterSave()` runs from Filament's `RecordSaved` event (dispatched as a class-name string
   with a `[record, data, page]` payload, not an object).
@@ -41,7 +41,7 @@ logins to 5 a minute per IP, so wait a minute between runs.
   `getMountedActionSchemaName()` + `getSchema()`: an injected `$schema` in an action closure is the schema the
   action sits in (null for table actions), not the modal. Taken fields are unset from the action data (the
   refreshed record keeps theirs); a conflict halts once with a notice.
-- `src/Support/FormFields.php`: field names (top-level), labels, display values (option labels, relationship
+- `src/Support/FormFields.php`: field paths (`names()`, folding repeater items, ignore prefixes), `key()` for state keys, labels, display values (option labels, relationship
   labels by key, Yes/No, plain text from HTML) shared by the page trait and the action.
 - `src/Events/{ChangesMerged,ConflictDetected,ConflictResolved}.php`.
 - `src/Livewire/Presence.php` + `resources/views/presence.blade.php`: rendered once through the
@@ -56,7 +56,8 @@ logins to 5 a minute per IP, so wait a minute between runs.
 
 - Every public property on the trait and the component is `#[Locked]`; every public method is browser-callable
   (`save`, `coeditPull`, `heartbeat`, `leave`, `acknowledge`): check input there (`sanitizeField()`).
-- Only top-level form fields take part in a merge; never compare or write attributes the form does not edit.
+- Only the form's fields take part in a merge, by path; never compare or write attributes the form does not edit.
+- `ChangesMerged`/`ConflictResolved` go out once the save commits (`$coeditTaken`/`$coeditSettled` carry them over a failed save; a modal's kept list sits behind a one-time `PresenceStore::hold()` token).
 - `coeditTheirs` holds only the conflicting fields, never the whole record.
 - A heartbeat never renders and never touches the database.
 - A conflict found while the dialog's own submit is saving (`$coeditResolving`) refills the mounted dialog and

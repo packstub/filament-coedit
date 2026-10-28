@@ -9,6 +9,7 @@ use Filament\Schemas\Schema;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use LogicException;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
@@ -92,7 +93,10 @@ class CoEditAction
                 defer($release, 'filament-coedit-save-lock:'.$room, always: true);
 
                 try {
-                    $merged[$room] = [...self::merge($action, $schema, $record, $ignore), 'release' => $release];
+                    // The page the modal is on, so its own avatars stay quiet about this save. A page
+                    // without avatars (a list) gets one of its own: your other tabs are told.
+                    $origin = $action->getLivewire()->coeditOrigin ?? null;
+                    $merged[$room] = [...self::merge($action, $schema, $record, $ignore), 'release' => $release, 'origin' => is_string($origin) && $origin !== '' ? $origin : Str::random(16)];
                 } catch (Throwable $exception) {
                     $release();
 
@@ -145,7 +149,7 @@ class CoEditAction
                     array_map(event(...), $merge['events']);
 
                     if ($merge['labels'] !== []) {
-                        CoEdit::store()->recordSave($room, CoEdit::who(), $merge['labels']);
+                        CoEdit::store()->recordSave($room, CoEdit::who(), $merge['labels'], $merge['origin']);
                     }
 
                     $merge['release']();
@@ -161,6 +165,7 @@ class CoEditAction
                 'mode' => 'editing',
                 'version' => (int) (CoEdit::store()->lastSave(PresenceStore::room($record))['version'] ?? 0),
                 'context' => 'modal',
+                'origin' => ($origin = $action->getLivewire()->coeditOrigin ?? null) !== '' ? $origin : null,
             ]));
         }
 

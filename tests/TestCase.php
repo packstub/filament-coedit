@@ -19,6 +19,7 @@ use Livewire\LivewireServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Packstub\CoEdit\CoEditServiceProvider;
 use Packstub\CoEdit\Tests\Fixtures\AdminPanelProvider;
+use Packstub\CoEdit\Tests\Fixtures\CountsLeaveRequests;
 use Packstub\CoEdit\Tests\Fixtures\User;
 use RyanChandler\BladeCaptureDirective\BladeCaptureDirectiveServiceProvider;
 
@@ -56,6 +57,14 @@ abstract class TestCase extends Orchestra
         Schema::create('categories', function (Blueprint $table): void {
             $table->id();
             $table->string('name');
+        });
+
+        Schema::create('pages', function (Blueprint $table): void {
+            $table->id();
+            $table->json('title');
+            $table->json('body')->nullable();
+            $table->string('slug')->nullable();
+            $table->timestamps();
         });
 
         Schema::create('labels', function (Blueprint $table): void {
@@ -98,5 +107,6 @@ abstract class TestCase extends Orchestra
         $app['config']->set('auth.providers.users.model', User::class);
         $app['config']->set('app.key', 'base64:2fl+Ktv6fZ7c7ZQfF1Zt6Q0Wd9jz5bJ6rKq8nX0m3Yk=');
         $app['config']->set('cache.default', 'array');
+        $app['config']->set('filament-coedit.leave_middleware', [CountsLeaveRequests::class]);
     }
 }

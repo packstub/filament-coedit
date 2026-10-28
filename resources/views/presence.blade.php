@@ -37,13 +37,14 @@
         <div class="fi-coedit-notice" x-show="save" x-cloak x-transition.opacity.duration.200ms>
             <template x-if="save">
                 <div class="fi-coedit-notice-inner">
-                    <p class="fi-coedit-notice-title" x-text="@js(__('filament-coedit::coedit.notice.title', ['name' => '__NAME__'])).replace('__NAME__', save.name)"></p>
+                    <p class="fi-coedit-notice-title" x-text="save.self ? @js(__('filament-coedit::coedit.notice.self_title')) : @js(__('filament-coedit::coedit.notice.title', ['name' => '__NAME__'])).replace('__NAME__', save.name)"></p>
                     <p class="fi-coedit-notice-body">
                         <span x-show="save.fields.length" x-text="@js(__('filament-coedit::coedit.notice.fields', ['fields' => '__FIELDS__'])).replace('__FIELDS__', save.fields.join(', '))"></span>
                         <span x-text="ago(save.at)"></span>
                     </p>
                     @if ($config['mode'] === 'editing')
-                        <p class="fi-coedit-notice-hint">{{ __($config['context'] === 'modal' ? 'filament-coedit::coedit.notice.modal_hint' : 'filament-coedit::coedit.notice.hint') }}</p>
+                        <p class="fi-coedit-notice-hint" x-show="! save.self">{{ __($config['context'] === 'modal' ? 'filament-coedit::coedit.notice.modal_hint' : 'filament-coedit::coedit.notice.hint') }}</p>
+                        <p class="fi-coedit-notice-hint" x-show="save.self">{{ __('filament-coedit::coedit.notice.self_hint') }}</p>
                     @endif
                     <div class="fi-coedit-notice-actions">
                         @if ($config['mode'] === 'editing' && $config['context'] === 'modal')

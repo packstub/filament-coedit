@@ -1,22 +1,27 @@
 <?php
 
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Support\ArrayRecord;
 use Filament\Tables\Table;
 use Illuminate\Cache\Events\RetrievingKey;
 use Illuminate\Cache\Events\RetrievingManyKeys;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ValidateSignature;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Tables\PresenceColumn;
+use Packstub\CoEdit\Tests\Fixtures\CountsLeaveRequests;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\ViewArticle;
+use Packstub\CoEdit\Tests\Fixtures\ViewArticleWithEditAction;
 
 use function Pest\Livewire\livewire;
 
@@ -155,14 +160,34 @@ it('tells the others who saved and what changed, until they acknowledge it', fun
     expect($ionPresence->instance()->snapshot()['save'])->toBeNull();
 });
 
-it('does not announce your own save to you', function (): void {
-    $ionPresence = presenceAs($this->ion, $this->room);
+it('does not announce your own save to the page that saved it', function (): void {
+    $this->actingAs($this->ion);
+    $page = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+    $ionPresence = livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'origin' => $page->get('coeditOrigin')]);
 
-    livewire(EditArticle::class, ['record' => $this->article->getKey()])
-        ->fillForm(['title' => 'Mine'])
-        ->call('save');
+    $page->fillForm(['title' => 'Mine'])->call('save');
 
-    expect($ionPresence->instance()->snapshot()['save'])->toBeNull();
+    expect($page->get('coeditOrigin'))->toHaveLength(16)
+        ->and($ionPresence->instance()->snapshot()['save'])->toBeNull();
+});
+
+it('tells you about your own save in another tab', function (): void {
+    $this->actingAs($this->ion);
+    $otherTab = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+    $ionPresence = livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'origin' => $otherTab->get('coeditOrigin')]);
+
+    livewire(EditArticle::class, ['record' => $this->article->getKey()])->fillForm(['title' => 'Mine'])->call('save');
+
+    expect($ionPresence->instance()->snapshot()['save'])->toMatchArray(['self' => true, 'fields' => ['Title']]);
+
+    $ionPresence->assertSee(__('filament-coedit::coedit.notice.self_title'));
+});
+
+it('hands the page\'s origin to its avatars', function (): void {
+    $this->actingAs($this->ion);
+    $page = livewire(EditArticle::class, ['record' => $this->article->getKey()])->instance();
+
+    expect((fn () => $this->renderCoEditPresence())->call($page)->getData()['origin'])->toBe($page->coeditOrigin);
 });
 
 it('lists who is on each row of a table', function (): void {
@@ -212,6 +237,17 @@ it('lets a closing tab leave through a signed beacon, and only that tab', functi
     expect(array_column(CoEdit::store()->members($this->room), 'name'))->toBe(['Ana']);
 });
 
+it('runs the configured middleware on the leave route, before the signature', function (): void {
+    $ion = presenceAs($this->ion, $this->room);
+    CountsLeaveRequests::$count = 0;
+
+    $this->post(Presence::leaveUrl($ion->get('room'), $ion->get('tab')))->assertNoContent();
+
+    expect(CountsLeaveRequests::$count)->toBe(1)
+        ->and(array_slice(Route::getRoutes()->getByName('filament-coedit.leave')->middleware(), 0, 2))
+        ->toBe([CountsLeaveRequests::class, ValidateSignature::class.':relative']);
+});
+
 it('sends the beacon to an app in a subdirectory, and the signature holds there', function (): void {
     $server = ['SCRIPT_NAME' => '/office/index.php', 'SCRIPT_FILENAME' => '/var/www/office/index.php'];
     $request = Request::create('https://acme.test/office/admin', server: $server);
@@ -248,4 +284,33 @@ it('leaves a row that is not a model empty', function (): void {
     $column = PresenceColumn::make('presence')->table(Table::make(new ListArticles));
 
     expect($column->record([ArrayRecord::getKeyName() => 'row-1', 'title' => 'An array row'])->getState())->toBeEmpty();
+});
+
+it('does not announce a modal save to the page it was made on, only to your other tabs', function (): void {
+    $this->actingAs($this->ion);
+    $otherTab = livewire(ViewArticleWithEditAction::class, ['record' => $this->article->getKey()]);
+    $page = livewire(ViewArticleWithEditAction::class, ['record' => $this->article->getKey()]);
+    $here = livewire(Presence::class, ['room' => $this->room, 'origin' => $page->get('coeditOrigin')]);
+    $there = livewire(Presence::class, ['room' => $this->room, 'origin' => $otherTab->get('coeditOrigin')]);
+
+    $page->callAction('edit', ['title' => 'From the modal'])->assertHasNoActionErrors();
+
+    expect($this->article->fresh()->title)->toBe('From the modal')
+        ->and($here->instance()->snapshot()['save'])->toBeNull()
+        ->and($there->instance()->snapshot()['save'])->toMatchArray(['self' => true]);
+});
+
+it('tells your other tabs about a save you made in a list page\'s modal', function (): void {
+    $this->actingAs($this->ion);
+    $otherTab = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+    $there = livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'origin' => $otherTab->get('coeditOrigin')]);
+
+    livewire(ListArticles::class)
+        ->mountAction(TestAction::make('edit')->table($this->article))
+        ->fillForm(['title' => 'From the list'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    expect(CoEdit::store()->lastSave($this->room)['origin'])->toBeString()->toHaveLength(16)
+        ->and($there->instance()->snapshot()['save'])->toMatchArray(['self' => true]);
 });

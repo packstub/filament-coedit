@@ -1,1 +1,1 @@
-@livewire(\Packstub\CoEdit\Livewire\Presence::class, ['room' => $room, 'mode' => $mode, 'version' => $version, 'context' => $context ?? 'page'], key('filament-coedit-'.($context ?? 'page').'-'.\Packstub\CoEdit\Presence\PresenceStore::opaque($room)))
+@livewire(\Packstub\CoEdit\Livewire\Presence::class, ['room' => $room, 'mode' => $mode, 'version' => $version, 'context' => $context ?? 'page', 'origin' => $origin ?? null], key('filament-coedit-'.($context ?? 'page').'-'.\Packstub\CoEdit\Presence\PresenceStore::opaque($room)))

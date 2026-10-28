@@ -2,6 +2,7 @@
 
 namespace Packstub\CoEdit\Concerns;
 
+use Closure;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
@@ -9,6 +10,7 @@ use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
@@ -55,6 +57,27 @@ trait InteractsWithCoEdit
     #[Locked]
     public array $coeditTheirs = [];
 
+    /**
+     * Their value of conflicting fields in another locale, as the translatable plugin
+     * keeps it aside (`$otherLocaleData`): what "Use theirs" writes back there.
+     *
+     * @var array<string, mixed>
+     */
+    #[Locked]
+    public array $coeditTheirsAside = [];
+
+    /**
+     * The other locales of their version as the plugin keeps them aside, from the
+     * last fill of it in this request.
+     *
+     * @var array<string, mixed> `attribute@locale` => value
+     */
+    protected array $coeditAside = [];
+
+    /** The active locale when the conflicts were found, on a translatable page. */
+    #[Locked]
+    public ?string $coeditConflictLocale = null;
+
     /** @var list<string> fields both sides changed, waiting for the dialog */
     #[Locked]
     public array $coeditConflicts = [];
@@ -66,9 +89,6 @@ trait InteractsWithCoEdit
     /** @var array{0: bool, 1: bool} the arguments of the save the dialog interrupted */
     #[Locked]
     public array $coeditSaveArguments = [true, true];
-
-    /** How many action calls this request is inside: a save from one stops it at a conflict. */
-    protected int $coeditCallingActions = 0;
 
     /** True while the dialog's own submit is saving, for this request only. */
     protected bool $coeditResolving = false;
@@ -130,15 +150,20 @@ trait InteractsWithCoEdit
         return [];
     }
 
-    public function callMountedAction(array $arguments = []): mixed
+    /**
+     * Attributes translated on this page with Filament's spatie-translatable plugin.
+     * Each locale of one is a field of its own (`title@ro`), whichever locale the
+     * form shows: the others wait in `$otherLocaleData` and are saved too.
+     *
+     * @return list<string>
+     */
+    protected function getCoEditTranslatableAttributes(): array
     {
-        $this->coeditCallingActions++;
-
-        try {
-            return parent::callMountedAction($arguments);
-        } finally {
-            $this->coeditCallingActions--;
+        if (! property_exists($this, 'otherLocaleData') || ! property_exists($this, 'activeLocale') || ! method_exists(static::getResource(), 'getTranslatableAttributes')) {
+            return [];
         }
+
+        return array_values(static::getResource()::getTranslatableAttributes());
     }
 
     public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
@@ -171,6 +196,8 @@ trait InteractsWithCoEdit
      */
     public function coeditPull(): void
     {
+        $this->coeditCheckLocale();
+
         try {
             $theirs = $this->coeditTheirs();
         } catch (ModelNotFoundException) {
@@ -187,15 +214,15 @@ trait InteractsWithCoEdit
 
         $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditMine(), $theirs);
 
-        $this->coeditWrite(Arr::only($result->data, $result->taken));
+        $this->coeditWrite(Arr::only($result->data, $result->taken), $this->coeditAside);
         $this->coeditRebase([...$theirs, ...Arr::only($this->coeditBase, $result->conflicts)]);
         $this->coeditAcknowledge(advanceVersion: ! $result->hasConflicts());
 
         Notification::make()
             ->title(__('filament-coedit::coedit.pull.title'))
             ->body($result->hasConflicts()
-                ? __('filament-coedit::coedit.pull.conflicts', ['fields' => FormFields::labels($this->form, $result->conflicts)])
-                : ($result->taken === [] ? null : __('filament-coedit::coedit.pull.taken', ['fields' => FormFields::labels($this->form, $result->taken)])))
+                ? __('filament-coedit::coedit.pull.conflicts', ['fields' => $this->coeditLabels($result->conflicts)])
+                : ($result->taken === [] ? null : __('filament-coedit::coedit.pull.taken', ['fields' => $this->coeditLabels($result->taken)])))
             ->success()
             ->send();
     }
@@ -208,22 +235,25 @@ trait InteractsWithCoEdit
             ->modalWidth('2xl')
             ->modalHeading(fn (): string => __('filament-coedit::coedit.conflict.heading', ['name' => $this->coeditTheirName()]))
             ->modalDescription(fn (): string => trans_choice('filament-coedit::coedit.conflict.description', count($this->coeditConflicts), ['name' => $this->coeditTheirName()]))
-            ->schema(fn (): array => array_map(
-                fn (string $field): Radio => Radio::make('choices.'.FormFields::key($field))
-                    ->label(FormFields::label($this->form, $field))
+            ->schema(function (): array {
+                $mine = $this->coeditFields();
+
+                return array_map(fn (string $field): Radio => Radio::make('choices.'.FormFields::key($field))
+                    ->label($this->coeditLabel($field))
                     ->options([
                         'mine' => __('filament-coedit::coedit.conflict.mine'),
                         'theirs' => __('filament-coedit::coedit.conflict.theirs', ['name' => $this->coeditTheirName()]),
                     ])
                     ->descriptions([
-                        'mine' => FormFields::display($this->form, $field, $this->coeditFields()[$field] ?? null),
-                        'theirs' => FormFields::display($this->form, $field, $this->coeditTheirs[$field] ?? null),
+                        'mine' => FormFields::display($this->form, $this->coeditPathOf($field)[0], $mine[$field] ?? null),
+                        'theirs' => FormFields::display($this->form, $this->coeditPathOf($field)[0], $this->coeditTheirs[$field] ?? null),
                     ])
                     ->default('mine')
                     ->inline()
                     ->required(),
-                $this->coeditConflicts,
-            ))
+                    $this->coeditConflicts,
+                );
+            })
             ->modalSubmitActionLabel(__('filament-coedit::coedit.conflict.submit'))
             ->action(fn (array $data) => $this->coeditResolve($data['choices'] ?? []));
     }
@@ -238,13 +268,21 @@ trait InteractsWithCoEdit
             return;
         }
 
+        // Their values wait in the shape of the locale the conflict was found in; after a
+        // switch (only possible from the browser) the next save merges again instead.
+        if ($this->coeditConflictLocale !== $this->coeditActiveLocale()) {
+            $this->coeditTheirs = $this->coeditTheirsAside = $this->coeditConflicts = [];
+
+            return;
+        }
+
         $settled = [];
 
         foreach ($this->coeditConflicts as $field) {
             $settled[$field] = ($choices[FormFields::key($field)] ?? 'mine') === 'theirs' ? 'theirs' : 'mine';
 
             if ($settled[$field] === 'theirs') {
-                $this->coeditWrite([$field => $this->coeditTheirs[$field] ?? null]);
+                $this->coeditWrite([$field => $this->coeditTheirs[$field] ?? null], $this->coeditTheirsAside);
             }
         }
 
@@ -252,6 +290,7 @@ trait InteractsWithCoEdit
         $this->coeditRebase([...$this->coeditBase, ...Arr::only($this->coeditTheirs, $this->coeditConflicts)]);
 
         $this->coeditTheirs = [];
+        $this->coeditTheirsAside = [];
         $this->coeditConflicts = [];
 
         $this->coeditSettled = [...$this->coeditSettled, ...$settled];
@@ -270,6 +309,8 @@ trait InteractsWithCoEdit
      */
     protected function coeditMergeBeforeSave(): bool
     {
+        $this->coeditCheckLocale();
+
         try {
             $theirs = $this->coeditTheirs();
         } catch (ModelNotFoundException) {
@@ -278,6 +319,8 @@ trait InteractsWithCoEdit
             return false;
         }
 
+        $this->coeditRefreshAside();
+
         if ($theirs === null) {
             return $this->coeditMerged = true;
         }
@@ -285,7 +328,7 @@ trait InteractsWithCoEdit
         $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditMine(), $theirs);
         $name = $this->coeditTheirName();
 
-        $this->coeditWrite(Arr::only($result->data, $result->taken));
+        $this->coeditWrite(Arr::only($result->data, $result->taken), $this->coeditAside);
         // What is in the database now is the base for every field not in conflict,
         // so the save afterwards only reports the fields you changed.
         $this->coeditRebase([...$this->coeditBase, ...Arr::except($theirs, $result->conflicts)]);
@@ -296,7 +339,7 @@ trait InteractsWithCoEdit
 
             Notification::make()
                 ->title(__('filament-coedit::coedit.taken.title', ['name' => e($name)]))
-                ->body(__('filament-coedit::coedit.taken.body', ['fields' => FormFields::labels($this->form, $result->taken)]))
+                ->body(__('filament-coedit::coedit.taken.body', ['fields' => $this->coeditLabels($result->taken)]))
                 ->info()
                 ->send();
         }
@@ -314,6 +357,8 @@ trait InteractsWithCoEdit
 
         $this->coeditConflicts = $result->conflicts;
         $this->coeditTheirs = Arr::only($theirs, $result->conflicts);
+        $this->coeditTheirsAside = Arr::only($this->coeditAside, $result->conflicts);
+        $this->coeditConflictLocale = $this->coeditActiveLocale();
 
         if ($this->coeditResolving) {
             // A newer save conflicts while the dialog is submitting: Filament would
@@ -325,7 +370,7 @@ trait InteractsWithCoEdit
             throw new Halt;
         }
 
-        if ($this->coeditCallingActions === 0) {
+        if (! $this->coeditCalledFromAction()) {
             // Called directly (the Save button, or Cmd+S while a modal is open).
             $this->mountedActions === []
                 ? $this->mountAction('coeditResolve')
@@ -406,13 +451,13 @@ trait InteractsWithCoEdit
         }
 
         $labels = array_map(
-            fn (string $field): string => FormFields::label($this->form, $field),
+            fn (string $field): string => $this->coeditLabel($field),
             array_values(array_intersect(array_keys($mine), $changed)),
         );
 
         // Announced once the save is committed, so nobody pulls the version before it.
         $this->getRecord()->getConnection()->afterCommit(function () use ($labels): void {
-            $save = CoEdit::store()->recordSave($this->getCoEditRoom(), CoEdit::who(), $labels);
+            $save = CoEdit::store()->recordSave($this->getCoEditRoom(), CoEdit::who(), $labels, $this->coeditOrigin);
 
             $this->coeditVersion = $save['version'];
 
@@ -441,10 +486,32 @@ trait InteractsWithCoEdit
      */
     protected function coeditFilled(): array
     {
-        // Every public property, not only the form: fillForm() may reset page state
-        // too (Filament's Translatable concern resets the active locale), and the
-        // save that follows must run on the page as the person left it. Objects are
-        // put back as they are: a change the fill makes inside one stays.
+        $this->getRecord()->refresh();
+
+        // The way the page filled itself at mount (beforeFill/afterFill hooks and any
+        // fillForm() override included), so a value set there is no change of theirs.
+        return $this->coeditPreservingPage(function (): array {
+            $this->fillForm();
+
+            $this->coeditAside = $this->coeditAsideNow();
+
+            return $this->coeditFields();
+        });
+    }
+
+    /**
+     * Run a fill and put the page back as it was. Every public property, not only the
+     * form: fillForm() may reset page state too (a page's own fillForm() resetting a
+     * locale or a tab), and the save that follows must run on the page as the person
+     * left it. Objects are put back as they are: a change the fill makes inside one stays.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $fill
+     * @return T
+     */
+    protected function coeditPreservingPage(Closure $fill): mixed
+    {
         $properties = array_filter(
             (new ReflectionObject($this))->getProperties(ReflectionProperty::IS_PUBLIC),
             fn (ReflectionProperty $property): bool => ! $property->isStatic() && ! $property->isReadOnly(),
@@ -458,14 +525,8 @@ trait InteractsWithCoEdit
             }
         }
 
-        $this->getRecord()->refresh();
-
-        // The way the page filled itself at mount (beforeFill/afterFill hooks and any
-        // fillForm() override included), so a value set there is no change of theirs.
         try {
-            $this->fillForm();
-
-            return $this->coeditFields();
+            return $fill();
         } finally {
             foreach ($properties as $property) {
                 if (array_key_exists($property->getName(), $page)) {
@@ -529,19 +590,180 @@ trait InteractsWithCoEdit
      */
     protected function coeditFields(): array
     {
-        return FormFields::only($this->form, $this->data ?? [], $this->getCoEditIgnoredFields());
+        $fields = FormFields::only($this->form, $this->data ?? [], $this->getCoEditIgnoredFields());
+        $translatable = $this->coeditTranslatable();
+
+        if ($translatable === []) {
+            return $fields;
+        }
+
+        $active = (string) $this->activeLocale;
+
+        foreach ($translatable as $attribute) {
+            if (array_key_exists($attribute, $fields)) {
+                $fields["{$attribute}@{$active}"] = $fields[$attribute];
+            }
+
+            unset($fields[$attribute]);
+
+        }
+
+        // The other locales wait aside in the shape the plugin saves (raw, or dehydrated
+        // after a switch); compared in the shape the form holds them, as the active one.
+        foreach ($this->otherLocaleData as $locale => $values) {
+            if ((string) $locale === $active || ! is_array($values)) {
+                continue;
+            }
+
+            foreach ($this->coeditHydrated(Arr::only($values, $translatable)) as $attribute => $value) {
+                $fields["{$attribute}@{$locale}"] = $value;
+            }
+        }
+
+        return $fields;
+    }
+
+    protected function coeditActiveLocale(): ?string
+    {
+        return $this->getCoEditTranslatableAttributes() === [] ? null : (string) $this->activeLocale;
     }
 
     /**
-     * Put values into the form, by path.
+     * The active locale comes from the browser: one the page does not offer is never
+     * filled, so nothing could be merged against it.
+     */
+    protected function coeditCheckLocale(): void
+    {
+        if ($this->getCoEditTranslatableAttributes() !== [] && method_exists($this, 'getTranslatableLocales')) {
+            abort_unless(in_array($this->activeLocale, $this->getTranslatableLocales(), strict: true), 422);
+        }
+    }
+
+    /**
+     * Values of translatable attributes as the form holds them once filled.
      *
      * @param  array<string, mixed>  $values
+     * @return array<string, mixed>
      */
-    protected function coeditWrite(array $values): void
+    protected function coeditHydrated(array $values): array
+    {
+        if ($values === []) {
+            return [];
+        }
+
+        return $this->coeditPreservingPage(function () use ($values): array {
+            $this->form->fillPartially($values, array_keys($values));
+
+            return Arr::only($this->data ?? [], array_keys($values));
+        });
+    }
+
+    /**
+     * The other locales as they wait aside now, every translatable attribute of them.
+     *
+     * @return array<string, mixed> `attribute@locale` => value
+     */
+    protected function coeditAsideNow(): array
+    {
+        $aside = [];
+
+        if ($this->getCoEditTranslatableAttributes() === []) {
+            return $aside;
+        }
+
+        foreach ($this->otherLocaleData as $locale => $values) {
+            if ((string) $locale === (string) $this->activeLocale || ! is_array($values)) {
+                continue;
+            }
+
+            foreach (Arr::only($values, $this->getCoEditTranslatableAttributes()) as $attribute => $value) {
+                $aside["{$attribute}@{$locale}"] = $value;
+            }
+        }
+
+        return $aside;
+    }
+
+    /**
+     * The plugin saves every translatable attribute of every other locale, also the ones
+     * this form leaves out: those take what is in the database now, never the page's copy
+     * from when it loaded. Ignored ones save as in plain Filament.
+     */
+    protected function coeditRefreshAside(): void
+    {
+        $merged = $this->coeditTranslatable();
+        $ignored = $this->getCoEditIgnoredFields();
+
+        foreach ($this->coeditAside as $field => $value) {
+            $attribute = Str::beforeLast($field, '@');
+
+            if (! in_array($attribute, $merged, strict: true) && ! in_array($attribute, $ignored, strict: true)) {
+                $this->otherLocaleData[Str::afterLast($field, '@')][$attribute] = $value;
+            }
+        }
+    }
+
+    /**
+     * Put their values into the form, by path; another locale's into the data it waits
+     * in, in the shape it waits there (`$aside`), which the plugin saves as it is.
+     *
+     * @param  array<string, mixed>  $values
+     * @param  array<string, mixed>  $aside  their other locales as the plugin keeps them
+     */
+    protected function coeditWrite(array $values, array $aside = []): void
     {
         foreach ($values as $field => $value) {
-            data_set($this->data, $field, $value);
+            [$path, $locale] = $this->coeditPathOf($field);
+
+            if ($locale !== null && $locale !== (string) $this->activeLocale) {
+                $this->otherLocaleData[$locale][$path] = array_key_exists($field, $aside) ? $aside[$field] : $value;
+
+                continue;
+            }
+
+            data_set($this->data, $path, $value);
         }
+    }
+
+    /**
+     * Translatable attributes the form edits and does not ignore.
+     *
+     * @return list<string>
+     */
+    protected function coeditTranslatable(): array
+    {
+        $attributes = $this->getCoEditTranslatableAttributes();
+
+        return $attributes === [] ? [] : array_values(array_intersect($attributes, FormFields::names($this->form, $this->getCoEditIgnoredFields())));
+    }
+
+    /**
+     * A merge field's path in the form, and its locale for a translatable one.
+     *
+     * @return array{0: string, 1: ?string}
+     */
+    protected function coeditPathOf(string $field): array
+    {
+        if (str_contains($field, '@') && in_array($attribute = Str::beforeLast($field, '@'), $this->coeditTranslatable(), strict: true)) {
+            return [$attribute, Str::afterLast($field, '@')];
+        }
+
+        return [$field, null];
+    }
+
+    protected function coeditLabel(string $field): string
+    {
+        [$path, $locale] = $this->coeditPathOf($field);
+
+        return FormFields::label($this->form, $path).($locale !== null ? ' ('.Str::upper($locale).')' : '');
+    }
+
+    /**
+     * @param  list<string>  $fields
+     */
+    protected function coeditLabels(array $fields): string
+    {
+        return implode(', ', array_map($this->coeditLabel(...), $fields));
     }
 
     protected function coeditNotifyDeleted(): void
@@ -552,6 +774,22 @@ trait InteractsWithCoEdit
             ->danger()
             ->persistent()
             ->send();
+    }
+
+    /**
+     * Whether this save runs inside an action's call (a header "Save and publish"):
+     * read from the stack, not by overriding callMountedAction(), so a page that
+     * overrides it itself is still seen. Only asked at a conflict.
+     */
+    protected function coeditCalledFromAction(): bool
+    {
+        foreach (debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT | DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+            if (($frame['function'] ?? null) === 'callMountedAction' && ($frame['object'] ?? null) === $this) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function coeditTheirName(): string

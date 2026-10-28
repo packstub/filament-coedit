@@ -36,16 +36,21 @@ class Presence extends Component
     #[Locked]
     public string $tab;
 
+    /** The page this sits on (HasPresence::$coeditOrigin): its own saves are not announced to it. */
+    #[Locked]
+    public ?string $origin = null;
+
     /** The last save this tab has seen; newer saves by others are announced. */
     #[Locked]
     public int $version = 0;
 
-    public function mount(string $room, string $mode = 'viewing', int $version = 0, string $context = 'page'): void
+    public function mount(string $room, string $mode = 'viewing', int $version = 0, string $context = 'page', ?string $origin = null): void
     {
         $this->room = PresenceStore::opaque($room);
         $this->mode = $mode === 'editing' ? 'editing' : 'viewing';
         $this->context = $context === 'modal' ? 'modal' : 'page';
         $this->version = $version;
+        $this->origin = $origin;
         $this->tab = Str::random(16);
     }
 
@@ -101,11 +106,16 @@ class Presence extends Component
         $me = CoEdit::who()['user'];
         $save = CoEdit::store()->lastSave($this->room);
 
+        // Your own save from another tab is announced too; from this page it is not.
+        $self = $save !== null && $save['user'] === $me;
+        $announce = $save !== null && $save['version'] > $this->version
+            && (! $self || (($save['origin'] ?? null) !== null && $save['origin'] !== $this->origin));
+
         return [
             // Who is who stays on the server: the browser only tells people apart.
             'members' => array_map(fn (array $member): array => ['user' => PresenceStore::opaque($member['user'])] + $member, $members),
-            'save' => $save !== null && $save['version'] > $this->version && $save['user'] !== $me
-                ? ['version' => $save['version'], 'name' => $save['name'], 'at' => $save['at'], 'fields' => $save['fields']]
+            'save' => $announce
+                ? ['version' => $save['version'], 'name' => $save['name'], 'at' => $save['at'], 'fields' => $save['fields'], 'self' => $self]
                 : null,
         ];
     }
