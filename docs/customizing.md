@@ -23,16 +23,20 @@ Listen for these to keep an audit trail or notify the person whose change was ke
 
 ## Your own save()
 
-If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open):
+If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open). Wrap both in `whileSaving()` so two saves of the record never run at the same time:
 
 ```php
+use Packstub\CoEdit\CoEdit;
+
 public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
 {
-    if (! $this->coeditMergeBeforeSave()) {
-        return;
-    }
+    CoEdit::store()->whileSaving($this->getCoEditRoom(), function (): void {
+        if (! $this->coeditMergeBeforeSave()) {
+            return;
+        }
 
-    // your save
+        // your save
+    });
 }
 ```
 

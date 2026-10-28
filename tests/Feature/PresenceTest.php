@@ -1,6 +1,9 @@
 <?php
 
 use Filament\Facades\Filament;
+use Illuminate\Cache\Events\RetrievingKey;
+use Illuminate\Cache\Events\RetrievingManyKeys;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Packstub\CoEdit\CoEdit;
@@ -113,6 +116,30 @@ it('lists who is on each row of a table', function (): void {
 
     livewire(ListArticles::class)
         ->assertSeeHtml('title="Ana · editing"');
+});
+
+it('reads the presence of a whole page of rows at once', function (): void {
+    $second = article(['title' => 'Summer launch']);
+    article(['title' => 'Winter launch']);
+
+    presenceAs($this->ana, $this->room);
+    presenceAs($this->ana, PresenceStore::room($second), mode: 'viewing');
+
+    $reads = ['one' => 0, 'many' => 0];
+    Event::listen(RetrievingKey::class, function ($event) use (&$reads): void {
+        str_starts_with($event->key, 'filament-coedit:') && ! str_ends_with($event->key, ':save') && $reads['one']++;
+    });
+    Event::listen(RetrievingManyKeys::class, function () use (&$reads): void {
+        $reads['many']++;
+    });
+
+    $this->actingAs($this->ion);
+
+    livewire(ListArticles::class)
+        ->assertSeeHtml('title="Ana · editing"')
+        ->assertSeeHtml('title="Ana · viewing"');
+
+    expect($reads)->toBe(['one' => 0, 'many' => 1]);
 });
 
 it('lets a closing tab leave through a signed beacon, and only that tab', function (): void {

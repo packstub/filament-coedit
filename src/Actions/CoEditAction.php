@@ -6,6 +6,7 @@ use Closure;
 use Filament\Actions\EditAction;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Schema;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
 use Packstub\CoEdit\CoEdit;
@@ -14,6 +15,9 @@ use Packstub\CoEdit\Events\ConflictDetected;
 use Packstub\CoEdit\Merge\ThreeWayMerge;
 use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Support\FormFields;
+use Throwable;
+
+use function Illuminate\Support\defer;
 
 /**
  * Co-Edit for modal edits: `EditAction::make()->coEdit()` in relation
@@ -46,6 +50,9 @@ class CoEditAction
         /** @var array<string, list<string>> $changed  labels of the fields this request saves, per record */
         $changed = [];
 
+        /** @var array<string, Closure(): void> $releases  the save lock held between before() and after(), per record */
+        $releases = [];
+
         $action->afterFormFilled(function (EditAction $action, Model $record) use ($afterFormFilled, $ignore): void {
             if ($schema = self::modalSchema($action)) {
                 $schema->rawState([
@@ -62,9 +69,37 @@ class CoEditAction
             }
         });
 
-        $action->before(function (EditAction $action, Model $record) use ($before, $ignore, &$changed): void {
+        $action->before(function (EditAction $action, Model $record) use ($before, $ignore, &$changed, &$releases): void {
             if ($schema = self::modalSchema($action)) {
-                $changed[PresenceStore::room($record)] = self::merge($action, $schema, $record, $ignore);
+                $room = PresenceStore::room($record);
+
+                // One save per record at a time, as on edit pages. after() releases it
+                // once the update is committed; when that never happens (your before()
+                // halts, the update throws, the transaction rolls back), the end of the
+                // request does.
+                try {
+                    $release = $releases[$room] = CoEdit::store()->acquireSaveLock($room);
+                } catch (LockTimeoutException) {
+                    Notification::make()->title(__('filament-coedit::coedit.busy'))->warning()->send();
+
+                    $action->halt();
+                }
+
+                defer($release, 'filament-coedit-save-lock:'.$room, always: true);
+
+                try {
+                    $changed[$room] = self::merge($action, $schema, $record, $ignore);
+
+                    if ($before) {
+                        $action->evaluate($before);
+                    }
+                } catch (Throwable $exception) {
+                    $release();
+
+                    throw $exception;
+                }
+
+                return;
             }
 
             if ($before) {
@@ -72,12 +107,21 @@ class CoEditAction
             }
         });
 
-        $action->after(function (EditAction $action, Model $record) use ($after, &$changed): void {
+        $action->after(function (EditAction $action, Model $record) use ($after, &$changed, &$releases): void {
             $room = PresenceStore::room($record);
+            $labels = $changed[$room] ?? [];
+            $release = $releases[$room] ?? null;
 
-            if (($changed[$room] ?? []) !== []) {
-                CoEdit::store()->recordSave($room, CoEdit::who(), $changed[$room]);
-            }
+            unset($changed[$room], $releases[$room]);
+
+            // Announced and unlocked once the update is committed.
+            $record->getConnection()->afterCommit(function () use ($room, $labels, $release): void {
+                if ($labels !== []) {
+                    CoEdit::store()->recordSave($room, CoEdit::who(), $labels);
+                }
+
+                $release?->__invoke();
+            });
 
             if ($after) {
                 $action->evaluate($after);

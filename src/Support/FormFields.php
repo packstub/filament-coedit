@@ -2,13 +2,17 @@
 
 namespace Packstub\CoEdit\Support;
 
+use Closure;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Schema;
+use Filament\Support\Services\RelationshipJoiner;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Throwable;
 use UnitEnum;
 
 /**
@@ -120,16 +124,32 @@ class FormFields
             return [];
         }
 
-        $related = $field->getRelationship()->getRelated();
+        // Built the way Filament builds it (pivot joins and relationship
+        // constraints included), then narrowed by the field's own query: the
+        // keys on your side come from the browser, so only records the field
+        // itself would offer are named.
+        try {
+            $relationship = Relation::noConstraints(fn (): Relation => $field->getRelationship());
+            $keyName = $field->getQualifiedRelatedKeyNameForRelationship($relationship);
+            $query = app(RelationshipJoiner::class)->prepareQueryForNoConstraints($relationship)->whereIn($keyName, $keys);
 
-        return $related->newQuery()
-            ->whereKey($keys)
-            ->get()
-            ->mapWithKeys(fn (Model $record): array => [
-                (string) $record->getKey() => $field->hasOptionLabelFromRecordUsingCallback()
-                    ? $field->getOptionLabelFromRecord($record)
-                    : (string) $record->getAttribute($field->getRelationshipTitleAttribute() ?? $related->getKeyName()),
-            ])
-            ->all();
+            $modify = (fn (): ?Closure => property_exists($this, 'modifyRelationshipQueryUsing') ? $this->modifyRelationshipQueryUsing : null)->call($field);
+
+            if ($modify) {
+                $query = $field->evaluate($modify, ['query' => $query, 'search' => null]) ?? $query;
+            }
+
+            return $query
+                ->get()
+                ->mapWithKeys(fn (Model $record): array => [
+                    (string) $record->getAttribute(Str::afterLast($keyName, '.')) => $field->hasOptionLabelFromRecordUsingCallback()
+                        ? $field->getOptionLabelFromRecord($record)
+                        : (string) data_get($record, str_replace('->', '.', $field->getRelationshipTitleAttribute() ?? $record->getKeyName())),
+                ])
+                ->all();
+        } catch (Throwable) {
+            // A label is a nicety: never let it stop the dialog. The keys show instead.
+            return [];
+        }
     }
 }

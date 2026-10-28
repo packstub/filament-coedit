@@ -44,4 +44,6 @@ return [
     ],
 
     'deleted' => ':name a șters înregistrarea în timp ce editai. Nu s-a salvat nimic.',
+
+    'busy' => 'Altcineva salvează această înregistrare. Încă nu s-a salvat nimic: încearcă din nou peste câteva clipe.',
 ];

@@ -4,6 +4,7 @@ namespace Packstub\CoEdit\Presence;
 
 use Closure;
 use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
@@ -50,11 +51,14 @@ class PresenceStore
     }
 
     /**
+     * Mark a tab as on the record, and return everyone else on it, as members() does.
+     *
      * @param  array{user: string, name: string, avatar: ?string}  $who
+     * @return list<array{user: string, name: string, avatar: ?string, color: string, mode: string, fields: list<string>}>
      */
-    public function touch(string $room, string $tab, array $who, string $mode, ?string $field = null): void
+    public function touch(string $room, string $tab, array $who, string $mode, ?string $field = null): array
     {
-        $this->mutate($room, function (array $members) use ($tab, $who, $mode, $field): array {
+        $members = $this->mutate($room, function (array $members) use ($tab, $who, $mode, $field): array {
             $members[$tab] = [
                 'user' => $who['user'],
                 'name' => $who['name'],
@@ -66,6 +70,8 @@ class PresenceStore
 
             return $members;
         });
+
+        return $this->group($members, $who['user']);
     }
 
     public function leave(string $room, string $tab): void
@@ -145,18 +151,68 @@ class PresenceStore
     }
 
     /**
-     * @param  callable(array<string, array<string, mixed>>): array<string, array<string, mixed>>  $change
+     * Run a save of the record while no other save of it runs, so two people
+     * saving at the same moment cannot both merge against the version before
+     * the other's. Waits up to `$wait` seconds, then throws LockTimeoutException.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     * @return T
+     *
+     * @throws LockTimeoutException
      */
-    protected function mutate(string $room, callable $change): void
+    public function whileSaving(string $room, callable $callback, int $wait = 10): mixed
+    {
+        return $this->locked($this->key($room).':saving', $callback, $wait, seconds: 30);
+    }
+
+    /**
+     * Take the save lock of a record for code that cannot wrap the save in a
+     * callback (a modal edit's before and after hooks). Call the returned
+     * closure to release it; it is safe to call more than once.
+     *
+     * @return Closure(): void
+     *
+     * @throws LockTimeoutException
+     */
+    public function acquireSaveLock(string $room, int $wait = 10): Closure
+    {
+        $store = $this->cache()->getStore();
+
+        if (! $store instanceof LockProvider) {
+            return function (): void {};
+        }
+
+        $lock = $store->lock($this->key($room).':saving:lock', 30);
+        $lock->block($wait);
+
+        $released = false;
+
+        return function () use ($lock, &$released): void {
+            if (! $released) {
+                $released = true;
+                $lock->release();
+            }
+        };
+    }
+
+    /**
+     * @param  callable(array<string, array<string, mixed>>): array<string, array<string, mixed>>  $change
+     * @return array<string, array<string, mixed>> the members as stored
+     */
+    protected function mutate(string $room, callable $change): array
     {
         $key = $this->key($room);
 
-        $this->locked($key, function () use ($key, $change): void {
+        return $this->locked($key, function () use ($key, $change): array {
             $members = $this->alive($change($this->alive($this->cache()->get($key, []))));
 
             $members === []
                 ? $this->cache()->forget($key)
                 : $this->cache()->put($key, $members, $this->timeout() * 3);
+
+            return $members;
         });
     }
 
@@ -166,7 +222,7 @@ class PresenceStore
      * @param  callable(): T  $callback
      * @return T
      */
-    protected function locked(string $key, callable $callback): mixed
+    protected function locked(string $key, callable $callback, int $wait = 3, int $seconds = 5): mixed
     {
         $store = $this->cache()->getStore();
 
@@ -174,7 +230,7 @@ class PresenceStore
             return $callback();
         }
 
-        return $store->lock($key.':lock', 5)->block(3, $callback);
+        return $store->lock($key.':lock', $seconds)->block($wait, $callback);
     }
 
     /**

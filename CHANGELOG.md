@@ -23,4 +23,13 @@ First release.
 - `PresenceColumn` for tables.
 - Cache-backed presence (any store with locks), heartbeats that never re-render, a signed `sendBeacon` so closing tabs leave at once, one entry per person across tabs, colours stable per user.
 - English, Romanian, Russian and German.
+- Saves of the same record run one at a time, on edit pages and in modal edits, under a lock in the cache store: two people pressing Save in the same instant are merged one after the other instead of overwriting each other. A save that waits more than 10 seconds says so and writes nothing. `CoEdit::store()->whileSaving()` for pages with their own `save()`.
+- Only the page's own save moves the merge base: a header action that saves another record (a `CreateAction`, which Filament also reports as a save of the page) leaves your unsaved edits as yours.
+- "Ion saved this record" lists only the fields Ion changed, not the ones his save kept from someone else.
+- The save announcement cannot be triggered from the browser, and the conflict dialog opened without a conflict does nothing.
+- "Get their changes" on a record deleted meanwhile says so instead of failing.
+- The others hear about a save once it is committed, so nobody pulls the version before it.
+- The conflict dialog names related records through the select's own relationship query (`modifyQueryUsing`), so a key sent from the browser never reveals a record the field would not offer.
+- `PresenceColumn` reads the whole page of rows from the cache at once instead of once per row; a heartbeat reads the room once instead of twice.
+- A presence component that goes away (a modal closing, SPA navigation) stops for good: a heartbeat still in flight cannot bring the tab back, and its timers and Livewire hook are released. A page restored from the back-forward cache reports in again.
 - Requires Filament 4.13.3+ or 5.8.3+, the first releases past the published multi-factor authentication advisories.

@@ -44,4 +44,6 @@ return [
     ],
 
     'deleted' => ':name deleted this record while you were editing. Nothing was saved.',
+
+    'busy' => 'Someone else is saving this record. Nothing was saved yet: try again in a moment.',
 ];

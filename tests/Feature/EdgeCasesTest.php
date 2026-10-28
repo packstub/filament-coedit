@@ -1,12 +1,19 @@
 <?php
 
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Select;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Sleep;
 use Packstub\CoEdit\CoEdit;
+use Packstub\CoEdit\Events\ConflictResolved;
 use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Support\FormFields;
+use Packstub\CoEdit\Tests\Fixtures\Article;
+use Packstub\CoEdit\Tests\Fixtures\Category;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
+use Packstub\CoEdit\Tests\Fixtures\Label;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\NamedUser;
 
@@ -191,4 +198,98 @@ it('falls back to a headline when a field has no label', function (): void {
         ->and(FormFields::display($schema, 'note', '<p>Hello&nbsp;<b>world</b></p>'))->toBe('Hello world')
         ->and(FormFields::display($schema, 'note', ''))->toBe('(empty)')
         ->and(FormFields::display($schema, 'tags', ['a', 'b']))->toBe('a, b');
+});
+
+it('keeps your unsaved edits when a header action saves another record', function (): void {
+    $ion = editPageAs($this->ion, $this->article)
+        ->fillForm(['title' => 'Autumn launch'])
+        ->callAction('newCategory', ['name' => 'Gardening'])
+        ->assertHasNoActionErrors();
+
+    expect(CoEdit::store()->lastSave(PresenceStore::room($this->article)))->toBeNull();
+
+    $ion->call('save')->assertHasNoFormErrors()->assertActionNotMounted('coeditResolve');
+
+    expect($this->article->fresh()->title)->toBe('Autumn launch');
+});
+
+it('ignores a save announcement asked for from the browser', function (): void {
+    editPageAs($this->ion, $this->article)
+        ->fillForm(['title' => 'Not saved yet'])
+        ->call('coeditAfterSave')
+        ->call('save');
+
+    expect(CoEdit::store()->lastSave($this->room))->toMatchArray(['version' => 1, 'fields' => ['Title']])
+        ->and($this->article->fresh()->title)->toBe('Not saved yet');
+});
+
+it('announces only your own fields after a save that kept theirs', function (): void {
+    $ion = editPageAs($this->ion, $this->article);
+
+    editPageAs($this->ana, $this->article)->fillForm(['status' => 'review'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn launch'])->call('save')->assertNotified('Kept Ana\'s changes');
+
+    expect(CoEdit::store()->lastSave($this->room))->toMatchArray(['version' => 2, 'name' => 'Ion', 'fields' => ['Title']]);
+});
+
+it('waits for another save of the same record, and says so when it takes too long', function (): void {
+    Sleep::fake(syncWithCarbon: true);
+
+    $release = CoEdit::store()->acquireSaveLock($this->room);
+
+    editPageAs($this->ion, $this->article)
+        ->fillForm(['title' => 'Autumn launch'])
+        ->call('save')
+        ->assertNotified(__('filament-coedit::coedit.busy'));
+
+    expect($this->article->fresh()->title)->toBe('Spring launch');
+
+    $release();
+    $release();
+
+    editPageAs($this->ion, $this->article)->fillForm(['title' => 'Autumn launch'])->call('save');
+
+    expect($this->article->fresh()->title)->toBe('Autumn launch');
+});
+
+it('does nothing when the conflict dialog is opened without a conflict', function (): void {
+    Event::fake([ConflictResolved::class]);
+
+    editPageAs($this->ion, $this->article)
+        ->fillForm(['title' => 'Autumn launch'])
+        ->mountAction('coeditResolve')
+        ->callMountedAction();
+
+    Event::assertNotDispatched(ConflictResolved::class);
+
+    expect($this->article->fresh()->title)->toBe('Spring launch');
+});
+
+it('names related records only through the field\'s own relationship query', function (): void {
+    $visible = Category::query()->create(['name' => 'News']);
+    $secret = Category::query()->create(['name' => 'Board minutes']);
+
+    $schema = Schema::make(livewire(ListArticles::class)->instance())
+        ->model(Article::class)
+        ->components([
+            Select::make('category_id')->relationship('category', 'name', fn ($query) => $query->where('name', '!=', 'Board minutes')),
+        ]);
+
+    expect(FormFields::display($schema, 'category_id', $visible->getKey()))->toBe('News')
+        ->and(FormFields::display($schema, 'category_id', $secret->getKey()))->toBe((string) $secret->getKey());
+});
+
+it('names related records of a field whose query mentions the pivot table', function (): void {
+    $label = Label::query()->create(['name' => 'Urgent']);
+    $this->article->labels()->attach($label);
+
+    $schema = Schema::make(livewire(ListArticles::class)->instance())
+        ->model($this->article)
+        ->components([
+            Select::make('labels')->multiple()->relationship('labels', 'name', fn ($query) => $query->orderBy('article_label.article_id')),
+        ]);
+
+    expect(FormFields::display($schema, 'labels', [$label->getKey()]))->toBe('Urgent');
 });

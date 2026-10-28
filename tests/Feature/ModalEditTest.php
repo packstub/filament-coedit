@@ -2,13 +2,16 @@
 
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Support\Defer\DeferredCallbackCollection;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Sleep;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
 use Packstub\CoEdit\Events\ConflictDetected;
 use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
+use Packstub\CoEdit\Tests\Fixtures\ListArticlesHaltingBefore;
 
 use function Pest\Livewire\livewire;
 
@@ -130,4 +133,42 @@ it('leaves ignored fields to plain Filament in the modal', function (): void {
 
 it('shows who is on the record inside the modal', function (): void {
     openModalAs($this->ion, $this->article)->assertSeeLivewire(Presence::class);
+});
+
+it('waits for another save of the same record in the modal too', function (): void {
+    Sleep::fake(syncWithCarbon: true);
+
+    $release = CoEdit::store()->acquireSaveLock(PresenceStore::room($this->article));
+
+    openModalAs($this->ion, $this->article)
+        ->fillForm(['title' => 'Autumn launch'])
+        ->callMountedAction()
+        ->assertNotified(__('filament-coedit::coedit.busy'));
+
+    expect($this->article->fresh()->title)->toBe('Spring launch');
+
+    $release();
+
+    openModalAs($this->ion, $this->article)->fillForm(['title' => 'Autumn launch'])->callMountedAction();
+
+    expect($this->article->fresh()->title)->toBe('Autumn launch')
+        ->and(CoEdit::store()->whileSaving(PresenceStore::room($this->article), fn () => 'free', wait: 0))->toBe('free');
+});
+
+it('releases the save lock by the end of the request when your own before() halts', function (): void {
+    $room = PresenceStore::room($this->article);
+
+    $this->actingAs($this->ion);
+
+    livewire(ListArticlesHaltingBefore::class)
+        ->mountAction(TestAction::make('edit')->table($this->article))
+        ->fillForm(['title' => 'Autumn launch'])
+        ->callMountedAction();
+
+    expect($this->article->fresh()->title)->toBe('Spring launch');
+
+    // What Laravel runs once the response is sent.
+    app(DeferredCallbackCollection::class)->invoke();
+
+    expect(CoEdit::store()->whileSaving($room, fn () => 'free', wait: 0))->toBe('free');
 });

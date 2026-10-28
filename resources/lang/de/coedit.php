@@ -44,4 +44,6 @@ return [
     ],
 
     'deleted' => ':name hat diesen Datensatz gelöscht, während du ihn bearbeitet hast. Nichts wurde gespeichert.',
+
+    'busy' => 'Jemand anderes speichert diesen Datensatz gerade. Noch wurde nichts gespeichert: versuch es gleich noch einmal.',
 ];
