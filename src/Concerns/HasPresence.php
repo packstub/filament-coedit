@@ -12,17 +12,21 @@ use Packstub\CoEdit\Presence\PresenceStore;
  */
 trait HasPresence
 {
-    public function getCoEditRoom(): string
+    protected function getCoEditRoom(): string
     {
         return PresenceStore::room($this->getRecord());
     }
 
-    public function getCoEditMode(): string
+    protected function getCoEditMode(): string
     {
         return 'viewing';
     }
 
-    public function renderCoEditPresence(): View
+    /**
+     * Protected like the getters above: a public method on a Livewire page can be
+     * called from the browser, and the room names the database behind the record.
+     */
+    protected function renderCoEditPresence(): View
     {
         return view('filament-coedit::hook', [
             'room' => $this->getCoEditRoom(),

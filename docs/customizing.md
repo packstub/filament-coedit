@@ -5,7 +5,7 @@
 Some fields belong to someone else: a counter a job updates, or a status a webhook sets. Left out of the merge, they save as they do in plain Filament:
 
 ```php
-public function getCoEditIgnoredFields(): array
+protected function getCoEditIgnoredFields(): array
 {
     return ['views'];
 }
@@ -45,7 +45,7 @@ public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotificat
 
 ## Rooms
 
-A room is one record: its database, its morph class and its key. Including the database keeps two tenants' product #5 apart in database-per-tenant apps. To decide differently, for example per team on a shared database, register a resolver in a service provider:
+A room is one record: its database, its morph class and its key. Including the database keeps two tenants' product #5 apart in database-per-tenant apps. Tenants that share a database name, such as one Postgres schema per tenant or databases of the same name on separate servers, need the resolver below, or their people see each other on records with the same key. To decide differently, for example per team on a shared database, register a resolver in a service provider:
 
 ```php
 use Packstub\CoEdit\Presence\PresenceStore;
@@ -53,4 +53,4 @@ use Packstub\CoEdit\Presence\PresenceStore;
 PresenceStore::resolveRoomUsing(fn (Model $record): string => $record->team_id.':'.$record->getMorphClass().':'.$record->getKey());
 ```
 
-Presence on a custom Livewire page works the same way: use `HasPresence` and override `getCoEditRoom()`.
+Presence on a custom Livewire page works the same way: use `HasPresence` and override `getCoEditRoom()` (keep it `protected`: a public method on a Livewire page can be called from the browser).

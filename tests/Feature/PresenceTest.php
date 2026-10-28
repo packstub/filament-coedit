@@ -3,6 +3,7 @@
 use Filament\Facades\Filament;
 use Illuminate\Cache\Events\RetrievingKey;
 use Illuminate\Cache\Events\RetrievingManyKeys;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
@@ -198,10 +199,33 @@ it('lets a closing tab leave through a signed beacon, and only that tab', functi
     $ion = presenceAs($this->ion, $this->room);
     $tab = $ion->get('tab');
 
-    $url = URL::signedRoute('filament-coedit.leave', ['room' => $this->room, 'tab' => $tab], absolute: false);
+    // The URL the page hands the browser, with the opaque room the component holds.
+    $url = Presence::leaveUrl($ion->get('room'), $tab);
 
     $this->post($url)->assertNoContent();
     $this->post(str_replace('tab='.$tab, 'tab=other', $url))->assertForbidden();
 
     expect(array_column(CoEdit::store()->members($this->room), 'name'))->toBe(['Ana']);
+});
+
+it('sends the beacon to an app in a subdirectory, and the signature holds there', function (): void {
+    $server = ['SCRIPT_NAME' => '/office/index.php', 'SCRIPT_FILENAME' => '/var/www/office/index.php'];
+    $request = Request::create('https://acme.test/office/admin', server: $server);
+    app()->instance('request', $request);
+    URL::setRequest($request);
+
+    $url = Presence::leaveUrl(PresenceStore::opaque($this->room), 'tab-a');
+
+    expect($url)->toStartWith('/office/filament-coedit/leave?')
+        ->and(URL::hasValidSignature(Request::create('https://acme.test'.$url, 'POST', server: $server), absolute: false))->toBeTrue();
+});
+
+it('never tells the browser which user model or id the others are', function (): void {
+    presenceAs($this->ana, $this->room)->call('heartbeat');
+
+    $member = presenceAs($this->ion, $this->room)->instance()->snapshot()['members'][0];
+
+    expect($member['name'])->toBe('Ana')
+        ->and($member['user'])->toBe(PresenceStore::opaque(CoEdit::who($this->ana)['user']))
+        ->and($member['user'])->not->toContain('User');
 });

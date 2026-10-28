@@ -9,6 +9,7 @@ use Filament\Schemas\Schema;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
+use LogicException;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
 use Packstub\CoEdit\Events\ConflictDetected;
@@ -29,8 +30,9 @@ use function Illuminate\Support\defer;
  * changed stop the save once, with their values in a notice; submitting
  * again keeps yours. The avatars of everyone on the record sit in the modal.
  *
- * Call it last in the chain: it wraps the action's `afterFormFilled()`,
- * `before()` and `after()` callbacks that are set at that point.
+ * The merge runs inside the save, after your `before()`, so `before()` and
+ * `after()` can be chained in any order. `afterFormFilled()` set after
+ * `coEdit()` replaces the fingerprinting, which is reported, never ignored.
  */
 class CoEditAction
 {
@@ -41,17 +43,10 @@ class CoEditAction
      */
     public static function configure(EditAction $action, array $ignore = [], bool $presence = true): EditAction
     {
-        $hook = fn (string $name): ?Closure => (fn () => $this->{$name})->call($action);
+        $hook = fn (string $name): Closure|string|null => (fn () => $this->{$name})->call($action);
 
         $afterFormFilled = $hook('afterFormFilled');
-        $before = $hook('before');
-        $after = $hook('after');
-
-        /** @var array<string, list<string>> $changed  labels of the fields this request saves, per record */
-        $changed = [];
-
-        /** @var array<string, Closure(): void> $releases  the save lock held between before() and after(), per record */
-        $releases = [];
+        $save = $hook('action');
 
         $action->afterFormFilled(function (EditAction $action, Model $record) use ($afterFormFilled, $ignore): void {
             if ($schema = self::modalSchema($action)) {
@@ -69,50 +64,42 @@ class CoEditAction
             }
         });
 
-        $action->before(function (EditAction $action, Model $record) use ($before, $ignore, &$changed, &$releases): void {
-            if ($schema = self::modalSchema($action)) {
-                $room = PresenceStore::room($record);
+        // The merge wraps the save itself, not before() and after(): those take one
+        // callback each, and one chained after coEdit() would replace the merge.
+        $action->action(function (EditAction $action, Model $record) use ($save, $ignore): mixed {
+            $schema = self::modalSchema($action);
 
-                // One save per record at a time, as on edit pages. after() releases it
-                // once the update is committed; when that never happens (your before()
-                // halts, the update throws, the transaction rolls back), the end of the
-                // request does.
-                try {
-                    $release = $releases[$room] = CoEdit::store()->acquireSaveLock($room);
-                } catch (LockTimeoutException) {
-                    Notification::make()->title(__('filament-coedit::coedit.busy'))->warning()->send();
+            // As Filament calls it: a method name on the page, and the modal's form injected.
+            $save = is_string($save) ? Closure::fromCallable([$action->getLivewire(), $save]) : $save;
+            $injected = ['form' => $schema, 'schema' => $schema];
 
-                    $action->halt();
-                }
-
-                defer($release, 'filament-coedit-save-lock:'.$room, always: true);
-
-                try {
-                    $changed[$room] = self::merge($action, $schema, $record, $ignore);
-
-                    if ($before) {
-                        $action->evaluate($before);
-                    }
-                } catch (Throwable $exception) {
-                    $release();
-
-                    throw $exception;
-                }
-
-                return;
+            if (! $schema) {
+                return $save ? $action->evaluate($save, $injected) : null;
             }
 
-            if ($before) {
-                $action->evaluate($before);
-            }
-        });
-
-        $action->after(function (EditAction $action, Model $record) use ($after, &$changed, &$releases): void {
             $room = PresenceStore::room($record);
-            $labels = $changed[$room] ?? [];
-            $release = $releases[$room] ?? null;
 
-            unset($changed[$room], $releases[$room]);
+            // One save per record at a time, as on edit pages. Released once the update
+            // is committed; when that never happens (a halt, an exception, a rollback),
+            // by the end of the request.
+            try {
+                $release = CoEdit::store()->acquireSaveLock($room);
+            } catch (LockTimeoutException) {
+                Notification::make()->title(__('filament-coedit::coedit.busy'))->warning()->send();
+
+                $action->halt();
+            }
+
+            defer($release, 'filament-coedit-save-lock:'.$room, always: true);
+
+            try {
+                $labels = self::merge($action, $schema, $record, $ignore);
+                $result = $save ? $action->evaluate($save, $injected) : null;
+            } catch (Throwable $exception) {
+                $release();
+
+                throw $exception;
+            }
 
             // Announced and unlocked once the update is committed.
             $record->getConnection()->afterCommit(function () use ($room, $labels, $release): void {
@@ -120,12 +107,10 @@ class CoEditAction
                     CoEdit::store()->recordSave($room, CoEdit::who(), $labels);
                 }
 
-                $release?->__invoke();
+                $release();
             });
 
-            if ($after) {
-                $action->evaluate($after);
-            }
+            return $result;
         });
 
         if ($presence) {
@@ -165,6 +150,11 @@ class CoEditAction
         $mine = FormFields::only($schema, $raw, $ignore);
 
         if (! is_array($state) || ! is_array($state['base'] ?? null)) {
+            // Saving without a merge would overwrite the others unseen: say so.
+            $exception = new LogicException('Co-Edit could not merge this modal edit: its form was filled without coEdit()\'s fingerprint. Call afterFormFilled() before coEdit(), not after it.');
+
+            app()->hasDebugModeEnabled() ? throw $exception : report($exception);
+
             return self::labelsOfChanged($schema, [], $mine);
         }
 

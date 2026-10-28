@@ -100,7 +100,8 @@ class Presence extends Component
         $save = CoEdit::store()->lastSave($this->room);
 
         return [
-            'members' => $members,
+            // Who is who stays on the server: the browser only tells people apart.
+            'members' => array_map(fn (array $member): array => ['user' => PresenceStore::opaque($member['user'])] + $member, $members),
             'save' => $save !== null && $save['version'] > $this->version && $save['user'] !== $me
                 ? ['version' => $save['version'], 'name' => $save['name'], 'at' => $save['at'], 'fields' => $save['fields']]
                 : null,
@@ -121,9 +122,18 @@ class Presence extends Component
                 'trackFields' => (bool) config('filament-coedit.track_fields', true),
                 'initial' => $this->snapshotWith($members),
                 'now' => now()->getTimestamp(),
-                'leave' => URL::signedRoute('filament-coedit.leave', ['room' => $this->room, 'tab' => $this->tab], absolute: false),
+                'leave' => static::leaveUrl($this->room, $this->tab),
             ],
         ]);
+    }
+
+    /**
+     * Signed relative to the app (it survives proxies and host aliases), sent
+     * with the app's base path so an app in a subdirectory receives it.
+     */
+    public static function leaveUrl(string $room, string $tab): string
+    {
+        return request()->getBaseUrl().URL::signedRoute('filament-coedit.leave', ['room' => $room, 'tab' => $tab], absolute: false);
     }
 
     /**

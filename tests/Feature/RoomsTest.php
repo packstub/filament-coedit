@@ -1,9 +1,11 @@
 <?php
 
+use Livewire\Exceptions\MethodNotFoundException;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Tests\Fixtures\Article;
+use Packstub\CoEdit\Tests\Fixtures\EditArticle;
 
 afterEach(function (): void {
     PresenceStore::resolveRoomUsing(null);
@@ -52,3 +54,10 @@ it('never shows the browser the database or the model behind a room', function (
 
     expect(array_column(CoEdit::store()->members($room), 'name'))->toBe(['Ion', 'Ana']);
 });
+
+it('never lets the browser call the room or presence helpers on the page', function (string $method): void {
+    $this->actingAs(user('Ion'));
+
+    expect(fn () => Livewire\Livewire::test(EditArticle::class, ['record' => article()->getKey()])->call($method))
+        ->toThrow(MethodNotFoundException::class);
+})->with(['getCoEditRoom', 'getCoEditMode', 'getCoEditIgnoredFields', 'renderCoEditPresence']);

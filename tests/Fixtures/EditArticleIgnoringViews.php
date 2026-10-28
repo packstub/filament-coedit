@@ -11,7 +11,7 @@ class EditArticleIgnoringViews extends EditRecord
 
     protected static string $resource = ArticleResource::class;
 
-    public function getCoEditIgnoredFields(): array
+    protected function getCoEditIgnoredFields(): array
     {
         return ['views'];
     }

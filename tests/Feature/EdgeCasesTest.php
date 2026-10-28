@@ -14,8 +14,10 @@ use Packstub\CoEdit\Support\FormFields;
 use Packstub\CoEdit\Tests\Fixtures\Article;
 use Packstub\CoEdit\Tests\Fixtures\Category;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
+use Packstub\CoEdit\Tests\Fixtures\EditArticleDefaultingTitle;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleFillingPrice;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleTrimmingTitle;
+use Packstub\CoEdit\Tests\Fixtures\EditArticleWithLocale;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleWithOwnSave;
 use Packstub\CoEdit\Tests\Fixtures\Label;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
@@ -435,3 +437,65 @@ function anaSavesStatus($article): void
     test()->actingAs(test()->ana);
     livewire(EditArticle::class, ['record' => $article->getKey()])->fillForm(['status' => 'review'])->call('save');
 }
+
+it('leaves the page as it was after filling their version, not only the form', function (): void {
+    $this->actingAs($this->ion);
+
+    $ion = livewire(EditArticleWithLocale::class, ['record' => $this->article->getKey()])->set('activeLocale', 'ro');
+
+    anaSavesStatus($this->article);
+
+    // The merge fills Ana's version through fillForm(), which resets the locale; the save must still be in Ion's.
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Toamnă'])->call('save')->assertHasNoFormErrors()->assertSet('activeLocale', 'ro');
+
+    expect($this->article->fresh())->title->toBe('Toamnă')->internal_note->toBe('ro')->status->toBe('review');
+});
+
+it('shows your own validation errors before asking about a conflict', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+
+    anaSavesStatus($this->article);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => '', 'status' => 'published'])
+        ->call('save')
+        ->assertHasFormErrors(['title' => 'required']);
+
+    expect($ion->instance()->mountedActions)->toBe([])
+        ->and($ion->instance()->coeditConflicts)->toBe([])
+        ->and($this->article->fresh()->status)->toBe('review');
+
+    $ion->fillForm(['title' => 'Autumn'])->call('save')->assertActionMounted('coeditResolve');
+});
+
+it('lets beforeValidate() fill a blank field, with or without a conflict', function (): void {
+    $this->actingAs($this->ion);
+    livewire(EditArticleDefaultingTitle::class, ['record' => $this->article->getKey()])
+        ->fillForm(['title' => ''])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->title)->toBe('Untitled');
+
+    $ion = livewire(EditArticleDefaultingTitle::class, ['record' => $this->article->getKey()]);
+    anaSavesStatus($this->article);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => '', 'status' => 'published'])->call('save')->assertHasNoFormErrors()->assertActionMounted('coeditResolve');
+});
+
+it('ignores the mount hook called again from the browser', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(EditArticle::class, ['record' => $this->article->getKey()])->fillForm(['title' => 'Autumn']);
+    $base = $ion->instance()->coeditBase;
+
+    try {
+        $ion->call('mountInteractsWithCoEdit');
+    } catch (Throwable) {
+        // Livewire 4 refuses the call outright; Livewire 3 lets it through.
+    }
+
+    expect($ion->instance()->coeditBase)->toBe($base)->and($base['title'])->toBe('Spring launch');
+});
