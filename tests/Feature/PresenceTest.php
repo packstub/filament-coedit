@@ -20,6 +20,7 @@ use Packstub\CoEdit\Tests\Fixtures\CountsLeaveRequests;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\ViewArticle;
+use Packstub\CoEdit\Tests\Fixtures\ViewArticleWithEditAction;
 
 use function Pest\Livewire\livewire;
 
@@ -282,4 +283,18 @@ it('leaves a row that is not a model empty', function (): void {
     $column = PresenceColumn::make('presence')->table(Table::make(new ListArticles));
 
     expect($column->record([ArrayRecord::getKeyName() => 'row-1', 'title' => 'An array row'])->getState())->toBeEmpty();
+});
+
+it('does not announce a modal save to the page it was made on, only to your other tabs', function (): void {
+    $this->actingAs($this->ion);
+    $otherTab = livewire(ViewArticleWithEditAction::class, ['record' => $this->article->getKey()]);
+    $page = livewire(ViewArticleWithEditAction::class, ['record' => $this->article->getKey()]);
+    $here = livewire(Presence::class, ['room' => $this->room, 'origin' => $page->get('coeditOrigin')]);
+    $there = livewire(Presence::class, ['room' => $this->room, 'origin' => $otherTab->get('coeditOrigin')]);
+
+    $page->callAction('edit', ['title' => 'From the modal'])->assertHasNoActionErrors();
+
+    expect($this->article->fresh()->title)->toBe('From the modal')
+        ->and($here->instance()->snapshot()['save'])->toBeNull()
+        ->and($there->instance()->snapshot()['save'])->toMatchArray(['self' => true]);
 });

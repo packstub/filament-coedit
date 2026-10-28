@@ -20,7 +20,7 @@ In Filament, the last save wins: when two people have a record open, the second 
 - **Field-level presence**: a coloured outline and a name tag on the field each person is in, so you know Ana is in Price before you start typing there.
 - **Saves that merge**: if someone saved while you were editing, the fields only they changed keep their value and the fields only you changed take yours. Neither person's work is lost.
 - **A conflict dialog only when needed**: when you both changed the same field, you pick *Keep mine* or *Use Ana's* for each of those fields, and only for those.
-- **"Ana saved this record"**: a notice names who saved and which fields changed. **Get their changes** pulls them into your open form without saving. On a view page, **Reload** shows them.
+- **"Ana saved this record"**: a notice names who saved and which fields changed. **Get their changes** pulls them into your open form without saving. On a view page, **Reload** shows them. Your own save in another tab is announced the same way.
 - **Modal edits too**: `EditAction::make()->coEdit()` brings the same merge and presence to relation managers, simple (modal) resources and table edit actions.
 - **Who's where in tables**: `PresenceColumn` shows avatars on the rows people have open.
 - **Events for your audit log**: `ChangesMerged`, `ConflictDetected` and `ConflictResolved` say what was kept, what was contested and what each person chose.
@@ -183,6 +183,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 | `idle` | `600` | Seconds without a keypress, click or pointer move before a page stops reporting in and its person drops off; the next one brings them back. Heartbeats keep the session alive, so this lets an unattended page sign out as it would without Co-Edit. `null` never pauses. |
 | `track_fields` | `true` | Show which field each person is in. Off, the avatars stay and the browser never reports focus. |
 | `remember_saves_for` | `3600` | Seconds that "Ana saved this record" is remembered for the people still on the record. The merge itself always compares against the database. |
+| `leave_middleware` | `[]` | Middleware for the route a closing tab leaves through, outside your panel. With a cache your tenancy scopes per tenant, add the middleware that identifies the tenant (stancl/tenancy: `InitializeTenancyByDomain`), or people drop off after `timeout` instead of at once. |
 
 ## Good to know
 

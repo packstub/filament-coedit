@@ -63,4 +63,7 @@ First release.
 - The leave beacon reaches apps installed in a subdirectory.
 - Text that only looks like a number is no longer reverted: whether someone else changed a field compares their version with the base exactly (both come from the database), so a version or SKU going from `1.1` to `1.10` is their change and kept, and text you typed compares exactly with the base too, so retyping `1.1` as `1.10` is your change; your typed `10.5` against their `10.50` is still no conflict. A modal save announces such a change too.
 - A modal's fingerprints are hashed, so its state no longer carries a copy of every field.
+- "You saved this record in another tab": your own save is announced to your other tabs of the record (page or modal saves on a page with Co-Edit), never to the page that made it.
+- `leave_middleware` config option: middleware for the leave beacon's route, for a cache scoped per tenant (stancl/tenancy's `InitializeTenancyByDomain`).
+- A save from a header action stops that action at a conflict also on a page that overrides `callMountedAction()` itself: Co-Edit no longer overrides it, and reads the call from the stack instead.
 - Requires Filament 4.13.3+ or 5.8.3+, the first releases past the published multi-factor authentication advisories.
