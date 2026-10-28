@@ -15,6 +15,7 @@ use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesChainingAfterCoEdit;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesFillingAfterCoEdit;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesHaltingBefore;
+use Packstub\CoEdit\Tests\Fixtures\ListArticlesWithOwnModalSave;
 
 use function Pest\Livewire\livewire;
 
@@ -215,3 +216,19 @@ it('reports it in production instead of failing the save', function (): void {
 
     expect($this->article->fresh()->title)->toBe('Autumn launch');
 });
+
+it('hands an action\'s own save the modal\'s schema, and calls one given as a method name', function (string $name): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(ListArticlesWithOwnModalSave::class)->mountAction(TestAction::make($name)->table($this->article));
+
+    anaSavesInModal($this->article, ['status' => 'review']);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn launch'])->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh())->title->toBe('Autumn launch')->status->toBe('review');
+
+    if ($name === 'edit') {
+        expect(ListArticlesWithOwnModalSave::$schema)->toStartWith('mountedActions.');
+    }
+})->with(['closure' => 'edit', 'method' => 'editByMethod']);

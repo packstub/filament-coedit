@@ -43,7 +43,7 @@ class CoEditAction
      */
     public static function configure(EditAction $action, array $ignore = [], bool $presence = true): EditAction
     {
-        $hook = fn (string $name): ?Closure => (fn () => $this->{$name})->call($action);
+        $hook = fn (string $name): Closure|string|null => (fn () => $this->{$name})->call($action);
 
         $afterFormFilled = $hook('afterFormFilled');
         $save = $hook('action');
@@ -69,8 +69,12 @@ class CoEditAction
         $action->action(function (EditAction $action, Model $record) use ($save, $ignore): mixed {
             $schema = self::modalSchema($action);
 
+            // As Filament calls it: a method name on the page, and the modal's form injected.
+            $save = is_string($save) ? Closure::fromCallable([$action->getLivewire(), $save]) : $save;
+            $injected = ['form' => $schema, 'schema' => $schema];
+
             if (! $schema) {
-                return $save ? $action->evaluate($save) : null;
+                return $save ? $action->evaluate($save, $injected) : null;
             }
 
             $room = PresenceStore::room($record);
@@ -90,7 +94,7 @@ class CoEditAction
 
             try {
                 $labels = self::merge($action, $schema, $record, $ignore);
-                $result = $save ? $action->evaluate($save) : null;
+                $result = $save ? $action->evaluate($save, $injected) : null;
             } catch (Throwable $exception) {
                 $release();
 

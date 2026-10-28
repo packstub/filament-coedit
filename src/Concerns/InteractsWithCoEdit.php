@@ -77,8 +77,17 @@ trait InteractsWithCoEdit
      */
     protected bool $coeditMerged = false;
 
+    /** Set once the page has mounted, so a mount hook called again from the browser does nothing. */
+    #[Locked]
+    public bool $coeditMounted = false;
+
     public function mountInteractsWithCoEdit(): void
     {
+        if ($this->coeditMounted) {
+            return;
+        }
+
+        $this->coeditMounted = true;
         $this->coeditBase = $this->coeditFields($this->data ?? []);
         $this->coeditVersion = (int) (CoEdit::store()->lastSave($this->getCoEditRoom())['version'] ?? 0);
     }
@@ -108,10 +117,6 @@ trait InteractsWithCoEdit
             // One save per record at a time: two people pressing Save at once
             // would otherwise both merge against the version before the other's.
             CoEdit::store()->whileSaving($this->getCoEditRoom(), function () use ($shouldRedirect, $shouldSendSavedNotification): void {
-                // Your own input first (access is checked on every request already), so an
-                // invalid form never opens the dialog and then fails behind it.
-                $this->form->validate();
-
                 if (! $this->coeditMergeBeforeSave()) {
                     return;
                 }
@@ -269,6 +274,11 @@ trait InteractsWithCoEdit
             return $this->coeditMerged = true;
         }
 
+        // Your own input before any dialog, as Filament's save would check it, so an
+        // invalid form never opens the dialog and then fails behind it.
+        $this->callHook('beforeValidate');
+        $this->form->validate();
+
         ConflictDetected::dispatch($this->getRecord(), auth()->user(), $result->conflicts, $name);
 
         $this->coeditConflicts = $result->conflicts;
@@ -368,7 +378,8 @@ trait InteractsWithCoEdit
     {
         // Every public property, not only the form: fillForm() may reset page state
         // too (Filament's Translatable concern resets the active locale), and the
-        // save that follows must run on the page as the person left it.
+        // save that follows must run on the page as the person left it. Objects are
+        // put back as they are: a change the fill makes inside one stays.
         $properties = array_filter(
             (new ReflectionObject($this))->getProperties(ReflectionProperty::IS_PUBLIC),
             fn (ReflectionProperty $property): bool => ! $property->isStatic() && ! $property->isReadOnly(),

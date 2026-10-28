@@ -96,7 +96,7 @@ use Filament\Actions\EditAction;
 ])
 ```
 
-The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. The merge runs inside the save, after your `before()`, so `before()` and `after()` go anywhere in the chain. Set `afterFormFilled()` before `coEdit()`, which wraps it: one set after replaces the fingerprint the merge needs, and the save then fails loudly (in production: is reported) instead of overwriting anyone unseen. `coEdit(ignore: ['views'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
+The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. The merge runs inside the save, after your `before()`, so `before()` and `after()` go anywhere in the chain (and your `before()` also runs on a submit that stops at a conflict). An `action()` replacing the save itself goes before `coEdit()`. Set `afterFormFilled()` before `coEdit()`, which wraps it: one set after replaces the fingerprint the merge needs, and the save then fails loudly (in production: is reported) instead of overwriting anyone unseen. `coEdit(ignore: ['views'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
 
 ### Leaving fields out
 
@@ -193,6 +193,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 - After `idle` the session can expire as usual, so the first keypress or pointer move afterwards may meet Livewire's "page expired" prompt or your login page, as any request would.
 - Saves of the same record run one at a time (a lock in the cache store), so two people pressing Save in the same instant are merged one after the other instead of overwriting each other. A save that waits more than 10 seconds for another one stops with a "try again" notice and writes nothing. Without a store that supports locks the saves are not serialised.
 - To compare like with like, the record is filled through your page the same way it was loaded (`fillForm()`), so your `beforeFill()`/`afterFill()` hooks also run when a save merges and on **Get their changes**. Only the form data is put back afterwards, so keep those hooks to setting form values.
+- Translatable fields (Filament's spatie-translatable plugin) merge in the default locale: their version is filled the way the page loads, so someone editing another locale may be asked about a field against the default locale's text. Your active locale and the other locales' edits are kept.
 - If someone deletes the record while you are editing, your save never recreates it: Filament can no longer load the record and the request stops before anything is written.
 - Names and avatars come from your panel (`getFilamentName()`, `getFilamentAvatarUrl()`), so people look the way they look everywhere else in the panel.
 

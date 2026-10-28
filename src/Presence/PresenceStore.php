@@ -190,7 +190,7 @@ class PresenceStore
 
     /**
      * Take the save lock of a record for code that cannot wrap the save in a
-     * callback (a modal edit's before and after hooks). Call the returned
+     * callback (a modal edit's merge, which spans the update and its commit). Call the returned
      * closure to release it; it is safe to call more than once.
      *
      * @return Closure(): void
