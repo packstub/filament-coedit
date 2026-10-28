@@ -111,3 +111,30 @@ it('keeps their edit to a note that starts with a date-time', function (): void 
     expect($result->taken)->toBe(['note'])
         ->and($result->data['note'])->toBe($note.' Wrote back.');
 });
+
+it('keeps their edit to text that only looks like a number', function (string $before, string $after): void {
+    $result = ThreeWayMerge::merge(['version' => $before], ['version' => $before], ['version' => $after]);
+
+    expect($result->taken)->toBe(['version'])
+        ->and($result->data['version'])->toBe($after)
+        ->and(ThreeWayMerge::changed(['version' => $before], ['version' => $after], exact: true))->toBe(['version']);
+})->with([
+    'version with a trailing zero' => ['1.1', '1.10'],
+    'whole version' => ['2.0', '2'],
+    'leading dot' => ['.5', '0.5'],
+]);
+
+it('still sees the same number typed two ways on both sides as no conflict', function (): void {
+    // A decimal cast fills "10.00"; you typed 10.5 and they saved 10.5, which the cast reads as "10.50".
+    $result = ThreeWayMerge::merge(['price' => '10.00'], ['price' => '10.5'], ['price' => '10.50']);
+
+    expect($result->conflicts)->toBe([])->and($result->taken)->toBe([])->and($result->data['price'])->toBe('10.5');
+});
+
+it('keeps the form noise rules in exact comparisons, except for numbers in text', function (): void {
+    expect(ThreeWayMerge::normalize(['0f8fad5b-d9cb-469f-a165-70867728950e' => 'a'], exact: true))
+        ->toBe(ThreeWayMerge::normalize(['7c9e6679-7425-40de-944b-e07fc1f90ae7' => 'a'], exact: true))
+        ->and(ThreeWayMerge::normalize('', exact: true))->toBe(ThreeWayMerge::normalize(null, exact: true))
+        ->and(ThreeWayMerge::normalize(12, exact: true))->toBe(ThreeWayMerge::normalize('12', exact: true))
+        ->and(ThreeWayMerge::normalize('1.10', exact: true))->not->toBe(ThreeWayMerge::normalize('1.1', exact: true));
+});

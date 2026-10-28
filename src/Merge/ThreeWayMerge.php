@@ -31,44 +31,43 @@ class ThreeWayMerge
         $conflicts = [];
 
         foreach (array_unique([...array_keys($base), ...array_keys($theirs)]) as $field) {
-            $b = self::normalize($base[$field] ?? null);
-            $t = self::normalize($theirs[$field] ?? null);
-
-            if ($t === $b) {
+            // Base and theirs both come from the database through the same form, so
+            // they compare exactly: "1.1" to "1.10" in a text field is their change.
+            if (self::normalize($theirs[$field] ?? null, exact: true) === self::normalize($base[$field] ?? null, exact: true)) {
                 continue;
             }
 
+            // Yours comes from the browser, so it compares through the form noise.
             $m = self::normalize($mine[$field] ?? null);
 
-            if ($m === $t) {
-                continue;
-            }
-
-            if ($m === $b) {
+            if ($m === self::normalize($base[$field] ?? null)) {
                 $merged[$field] = $theirs[$field] ?? null;
                 $taken[] = $field;
 
                 continue;
             }
 
-            $conflicts[] = $field;
+            if ($m !== self::normalize($theirs[$field] ?? null)) {
+                $conflicts[] = $field;
+            }
         }
 
         return new MergeResult($merged, $taken, $conflicts);
     }
 
     /**
-     * The fields whose value differs between two versions of the form.
+     * The fields whose value differs between two versions of the form; `exact`
+     * for two versions read from the database (see normalize()).
      *
      * @param  array<string, mixed>  $from
      * @param  array<string, mixed>  $to
      * @return list<string>
      */
-    public static function changed(array $from, array $to): array
+    public static function changed(array $from, array $to, bool $exact = false): array
     {
         return array_values(array_filter(
             array_unique([...array_keys($from), ...array_keys($to)]),
-            fn (string $field): bool => self::normalize($from[$field] ?? null) !== self::normalize($to[$field] ?? null),
+            fn (string $field): bool => self::normalize($from[$field] ?? null, $exact) !== self::normalize($to[$field] ?? null, $exact),
         ));
     }
 
@@ -79,19 +78,22 @@ class ThreeWayMerge
      * was filled with 12, a cleared field sends "" where the record had null,
      * and repeaters and file uploads key their items with fresh UUIDs on
      * every fill. None of that is a change.
+     *
+     * `exact` keeps text that looks like a number as text ("1.1" is not "1.10"),
+     * for two values that come the same way, both read from the database.
      */
-    public static function normalize(mixed $value): string
+    public static function normalize(mixed $value, bool $exact = false): string
     {
-        $canonical = self::canonical($value);
+        $canonical = self::canonical($value, $exact);
 
         // Invalid UTF-8 cannot be JSON: compare it byte for byte instead of as "".
         return json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION) ?: serialize($canonical);
     }
 
-    protected static function canonical(mixed $value): mixed
+    protected static function canonical(mixed $value, bool $exact = false): mixed
     {
         if ($value instanceof BackedEnum) {
-            return self::canonical($value->value);
+            return self::canonical($value->value, $exact);
         }
 
         if ($value instanceof UnitEnum) {
@@ -103,11 +105,11 @@ class ThreeWayMerge
         }
 
         if ($value instanceof JsonSerializable) {
-            return self::canonical($value->jsonSerialize());
+            return self::canonical($value->jsonSerialize(), $exact);
         }
 
         if ($value instanceof Stringable) {
-            return self::canonical((string) $value);
+            return self::canonical((string) $value, $exact);
         }
 
         if (is_bool($value)) {
@@ -125,7 +127,7 @@ class ThreeWayMerge
 
             // Plain decimals only ("12", "10.00", "-3.5", ".5"), compared digit by digit: "+12",
             // "1e3", "12 " and leading zeros stay text, and long ids never pass through a float.
-            if (preg_match('/^-?((0|[1-9]\d*)(\.\d+)?|\.\d+)$/', $value)) {
+            if (! $exact && preg_match('/^-?((0|[1-9]\d*)(\.\d+)?|\.\d+)$/', $value)) {
                 return self::decimal($value);
             }
 
@@ -146,7 +148,7 @@ class ThreeWayMerge
             $keys = array_keys($value);
             $isUuidKeyed = $keys !== [] && array_reduce($keys, fn (bool $carry, int|string $key): bool => $carry && is_string($key) && Str::isUuid($key), true);
 
-            $value = array_map(self::canonical(...), $isUuidKeyed ? array_values($value) : $value);
+            $value = array_map(fn (mixed $item): mixed => self::canonical($item, $exact), $isUuidKeyed ? array_values($value) : $value);
 
             if (! array_is_list($value)) {
                 ksort($value);

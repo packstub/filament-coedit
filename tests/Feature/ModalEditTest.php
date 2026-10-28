@@ -232,3 +232,15 @@ it('hands an action\'s own save the modal\'s schema, and calls one given as a me
         expect(ListArticlesWithOwnModalSave::$schema)->toStartWith('mountedActions.');
     }
 })->with(['closure' => 'edit', 'method' => 'editByMethod']);
+
+it('keeps a colleague\'s edit to a title that only looks like a number in the modal', function (): void {
+    $this->article->update(['title' => '1.1']);
+    $ion = openModalAs($this->ion, $this->article);
+
+    anaSavesInModal($this->article, ['title' => '1.10']);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['price' => 20])->callMountedAction()->assertHasNoFormErrors()->assertNotified('Kept Ana\'s changes');
+
+    expect($this->article->fresh())->title->toBe('1.10')->price->toBe('20.00');
+});

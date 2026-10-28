@@ -53,4 +53,6 @@ First release.
 - `getCoEditRoom()`, `getCoEditMode()`, `getCoEditIgnoredFields()` and `renderCoEditPresence()` are protected: on a Livewire page a public method can be called from the browser, and the room names the database. Overrides should be `protected` too.
 - The browser gets the others as opaque ids, never their user model and key.
 - The leave beacon reaches apps installed in a subdirectory.
+- Text that only looks like a number is no longer reverted: whether someone else changed a field compares their version with the base exactly (both come from the database), so a version or SKU going from `1.1` to `1.10` is their change and kept; your typed `10.5` against their `10.50` is still no conflict. A modal save announces such a change too.
+- A modal's fingerprints are hashed, so its state no longer carries a copy of every field.
 - Requires Filament 4.13.3+ or 5.8.3+, the first releases past the published multi-factor authentication advisories.
