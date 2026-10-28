@@ -39,4 +39,10 @@ First release.
 - Value comparison is stricter where it used to be too lenient (and `.5` still equals `0.5`): a text that starts with a date-time is compared in full, only plain decimals count as numbers (`+40123`, `1e3`, `12 ` stay text), long numeric ids are compared digit by digit, and invalid UTF-8 is compared byte for byte.
 - Names are escaped in notifications.
 - Works under `Relation::enforceMorphMap()` whether or not the user model is mapped.
+- After your own save the merge base is what the save wrote, read back through the form: a value tidied on the way in (`mutateFormDataBeforeSave()`, `dehydrateStateUsing()`) no longer comes back as "Someone's" change or opens the dialog against yourself on the next save.
+- Field markers stay with their record: the page's avatars ignore the fields of a modal open on it (a relation manager row is another record), and a modal's avatars ignore the page's.
+- The save notice inside a modal has no **Get their changes** button (there is nothing to refill a modal with) and says what saving does there instead.
+- `idle` config option (default 600 seconds): a page nobody has touched stops sending heartbeats until the next keypress or pointer move, so an unattended page lets its session expire and stops loading the server.
+- A heartbeat or page render that finds the room's lock busy skips one beat instead of failing, and announcing a committed save never fails it.
+- The browser sees a room as a hash (`PresenceStore::opaque()`), never the database name behind it (a tenant's, or an SQLite file's path) or the model class.
 - Requires Filament 4.13.3+ or 5.8.3+, the first releases past the published multi-factor authentication advisories.

@@ -1,6 +1,7 @@
 <?php
 
 use Packstub\CoEdit\CoEdit;
+use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Tests\Fixtures\Article;
 
@@ -33,4 +34,21 @@ it('names the same record the same room every time', function (): void {
     $article = article();
 
     expect(PresenceStore::room($article))->toBe(PresenceStore::room(Article::query()->find($article->getKey())));
+});
+
+it('never shows the browser the database or the model behind a room', function (): void {
+    $this->actingAs(user('Ion'));
+    $article = article();
+    $room = PresenceStore::room($article);
+
+    $presence = Livewire\Livewire::test(Presence::class, ['room' => $room, 'mode' => 'editing']);
+
+    expect($presence->html())->not->toContain(config('database.connections.sqlite.database'))
+        ->not->toContain('Article')
+        ->and($presence->get('room'))->toBe(PresenceStore::opaque($room));
+
+    // Both forms are the same room: Ion joined through the opaque one, Ana through the other.
+    CoEdit::store()->touch($room, 'tab', ['user' => 'ana', 'name' => 'Ana', 'avatar' => null], 'editing');
+
+    expect(array_column(CoEdit::store()->members($room), 'name'))->toBe(['Ion', 'Ana']);
 });

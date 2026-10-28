@@ -282,10 +282,14 @@ trait InteractsWithCoEdit
 
         $this->coeditMerged = false;
 
-        $data = $this->coeditFields($this->data);
-        $changed = ThreeWayMerge::changed($this->coeditBase, $data);
+        // The record as saved, filled through the form: what the save wrote can differ
+        // from the form (mutateFormDataBeforeSave(), dehydrateStateUsing()), and the next
+        // merge must not mistake that for someone else's change. The save lock is still
+        // held, so this is this page's own save.
+        $saved = $this->coeditFilled();
+        $changed = ThreeWayMerge::changed($this->coeditBase, $saved);
 
-        $this->coeditBase = $data;
+        $this->coeditBase = $saved;
 
         if ($changed === []) {
             return;
@@ -312,18 +316,29 @@ trait InteractsWithCoEdit
      */
     protected function coeditTheirs(): ?array
     {
-        $record = $this->getRecord();
+        $theirs = $this->coeditFilled();
+
+        return ThreeWayMerge::changed($this->coeditBase, $theirs) === [] ? null : $theirs;
+    }
+
+    /**
+     * The record read again and filled through this form, leaving the form as it was.
+     *
+     * @return array<string, mixed>
+     */
+    protected function coeditFilled(): array
+    {
         $mine = $this->data;
 
-        $record->refresh();
+        $this->getRecord()->refresh();
 
         // The way the page filled itself at mount (beforeFill/afterFill hooks and any
         // fillForm() override included), so a value set there is no change of theirs.
         $this->fillForm();
-        $theirs = $this->coeditFields($this->data ?? []);
+        $filled = $this->coeditFields($this->data ?? []);
         $this->data = $mine;
 
-        return ThreeWayMerge::changed($this->coeditBase, $theirs) === [] ? null : $theirs;
+        return $filled;
     }
 
     /**

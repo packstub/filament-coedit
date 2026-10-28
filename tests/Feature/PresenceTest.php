@@ -72,6 +72,39 @@ it('ignores field reports from viewers and anything that is not a state path', f
     'too long' => ['editing', str_repeat('a', 201)],
 ]);
 
+it('keeps a modal\'s fields out of the page\'s room and the page\'s out of the modal\'s', function (): void {
+    // A modal on the page edits another record (a relation manager row): its fields
+    // share state paths with the same modal on any other record.
+    test()->actingAs($this->ana);
+    livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing'])->call('heartbeat', 'mountedActions.0.data.title');
+
+    expect(CoEdit::store()->members($this->room)[0]['fields'])->toBe([]);
+
+    test()->actingAs($this->ion);
+    livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'context' => 'modal'])->call('heartbeat', 'data.title');
+    livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'context' => 'modal'])->call('heartbeat', 'mountedActions.0.data.status');
+
+    expect(collect(CoEdit::store()->members($this->room))->firstWhere('name', 'Ion')['fields'])->toBe(['mountedActions.0.data.status']);
+});
+
+it('offers to get their changes on an edit page, not in a modal that cannot be refilled', function (): void {
+    CoEdit::store()->recordSave($this->room, CoEdit::who($this->ana), ['Title']);
+
+    presenceAs($this->ion, $this->room)->assertSee('Get their changes');
+
+    livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'context' => 'modal'])
+        ->assertDontSee('Get their changes')
+        ->assertSee('save again to keep yours');
+});
+
+it('tells the browser when to stop reporting in, so an unattended page lets the session expire', function (): void {
+    presenceAs($this->ion, $this->room)->assertSeeHtml('\\u0022idle\\u0022:600000');
+
+    config(['filament-coedit.idle' => null]);
+
+    presenceAs($this->ion, $this->room)->assertSeeHtml('\\u0022idle\\u0022:null');
+});
+
 it('cannot be pointed at another room from the browser', function (): void {
     presenceAs($this->ion, $this->room)->set('room', 'App\\Models\\User:1');
 })->throws(CannotUpdateLockedPropertyException::class);

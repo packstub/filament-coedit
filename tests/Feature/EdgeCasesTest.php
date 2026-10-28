@@ -15,6 +15,7 @@ use Packstub\CoEdit\Tests\Fixtures\Article;
 use Packstub\CoEdit\Tests\Fixtures\Category;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleFillingPrice;
+use Packstub\CoEdit\Tests\Fixtures\EditArticleTrimmingTitle;
 use Packstub\CoEdit\Tests\Fixtures\Label;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\NamedUser;
@@ -337,4 +338,25 @@ it('shows a name as text in the notifications, never as markup', function (): vo
     $ion->fillForm(['title' => 'Autumn launch'])
         ->call('save')
         ->assertNotified(__('filament-coedit::coedit.taken.title', ['name' => e('<a href="https://example.com">Ana</a>')]));
+});
+
+it('never mistakes what your own save wrote for someone else\'s change', function (): void {
+    $this->actingAs($this->ion);
+
+    // The page saves the title trimmed: the database holds "Autumn", the form "  Autumn  ".
+    $page = livewire(EditArticleTrimmingTitle::class, ['record' => $this->article->getKey()])
+        ->fillForm(['title' => '  Autumn  '])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->title)->toBe('Autumn');
+
+    $page->fillForm(['title' => 'Winter', 'price' => 20])
+        ->call('save')
+        ->assertHasNoFormErrors()
+        ->assertNotNotified('Kept Someone\'s changes');
+
+    expect($page->instance()->mountedActions)->toBe([])
+        ->and($this->article->fresh())->title->toBe('Winter')->price->toBe('20.00')
+        ->and(CoEdit::store()->lastSave($this->room)['fields'])->toBe(['Title', 'Price']);
 });

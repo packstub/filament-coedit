@@ -35,6 +35,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Idle (seconds)
+    |--------------------------------------------------------------------------
+    |
+    | A page nobody has touched for this long stops reporting in, and its
+    | person drops off the record until they type, click or move the pointer.
+    | Every heartbeat is a request that keeps the session alive, so without
+    | this a page left open would never sign its user out. Null never pauses.
+    |
+    */
+
+    'idle' => 600,
+
+    /*
+    |--------------------------------------------------------------------------
     | Last save memory (seconds)
     |--------------------------------------------------------------------------
     |

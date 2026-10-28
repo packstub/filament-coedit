@@ -177,6 +177,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 | `cache_store` | default store | Where presence lives, also set by `FILAMENT_COEDIT_CACHE_STORE`. Every server must share it, so in production use a shared store such as Redis or the database. |
 | `heartbeat` | `4` | Seconds between heartbeats. A page also reports at once when its user moves to another field. |
 | `timeout` | `20` | Seconds without a heartbeat before someone drops off. A closing tab leaves immediately. Never less than two heartbeats plus a second. |
+| `idle` | `600` | Seconds without a keypress, click or pointer move before a page stops reporting in and its person drops off; the next one brings them back. Heartbeats keep the session alive, so this lets an unattended page sign out as it would without Co-Edit. `null` never pauses. |
 | `track_fields` | `true` | Show which field each person is in. Off, the avatars stay and the browser never reports focus. |
 | `remember_saves_for` | `3600` | Seconds that "Ana saved this record" is remembered for the people still on the record. The merge itself always compares against the database. |
 
@@ -185,7 +186,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 - A heartbeat is one small Livewire request that doesn't re-render the page. With the default 4 seconds, ten people on a record send 2.5 heartbeats a second between them.
 - A toggle never conflicts: it only has two values, so if they flipped it, you either left it alone (theirs is kept) or flipped it the same way.
 - Relationship selects show related records by name in the dialog, even when their options are searched rather than preloaded.
-- A tab in the background skips its heartbeats, so it drops off after `timeout` seconds and comes back as soon as its user switches to it. A person with the record open in another, visible tab stays on.
+- A tab in the background skips its heartbeats, so it drops off after `timeout` seconds and comes back as soon as its user switches to it. A person with the record open in another, visible tab stays on. A page nobody has touched for `idle` seconds stops too, so a forgotten tab neither keeps the session alive nor loads the server.
 - Saves of the same record run one at a time (a lock in the cache store), so two people pressing Save in the same instant are merged one after the other instead of overwriting each other. A save that waits more than 10 seconds for another one stops with a "try again" notice and writes nothing. Without a store that supports locks the saves are not serialised.
 - To compare like with like, the record is filled through your page the same way it was loaded (`fillForm()`), so your `beforeFill()`/`afterFill()` hooks also run when a save merges and on **Get their changes**. Only the form data is put back afterwards, so keep those hooks to setting form values.
 - If someone deletes the record while you are editing, your save never recreates it: Filament can no longer load the record and the request stops before anything is written.

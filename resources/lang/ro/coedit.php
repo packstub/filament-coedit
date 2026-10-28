@@ -15,6 +15,7 @@ return [
         'title' => ':name a salvat această înregistrare',
         'fields' => 'A modificat :fields ·',
         'hint' => 'La salvare, modificările lor se păstrează. Alegi doar pentru câmpurile editate de amândoi.',
+        'modal_hint' => 'La salvare, modificările lor se păstrează. Pentru un câmp editat de amândoi vezi întâi valoarea lor; salvează din nou ca să o păstrezi pe a ta.',
         'pull' => 'Preia modificările',
         'reload' => 'Reîncarcă',
         'dismiss' => 'Închide',

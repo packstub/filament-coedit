@@ -15,6 +15,7 @@ return [
         'title' => ':name saved this record',
         'fields' => 'Changed :fields ·',
         'hint' => 'Saving keeps their changes. You only choose for fields you both edited.',
+        'modal_hint' => 'Saving keeps their changes. For a field you both edited you see their value first; save again to keep yours.',
         'pull' => 'Get their changes',
         'reload' => 'Reload',
         'dismiss' => 'Dismiss',
