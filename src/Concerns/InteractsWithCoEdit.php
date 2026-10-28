@@ -68,9 +68,6 @@ trait InteractsWithCoEdit
     #[Locked]
     public array $coeditSaveArguments = [true, true];
 
-    /** How many action calls this request is inside: a save from one stops it at a conflict. */
-    protected int $coeditCallingActions = 0;
-
     /** True while the dialog's own submit is saving, for this request only. */
     protected bool $coeditResolving = false;
 
@@ -145,17 +142,6 @@ trait InteractsWithCoEdit
         }
 
         return array_values(static::getResource()::getTranslatableAttributes());
-    }
-
-    public function callMountedAction(array $arguments = []): mixed
-    {
-        $this->coeditCallingActions++;
-
-        try {
-            return parent::callMountedAction($arguments);
-        } finally {
-            $this->coeditCallingActions--;
-        }
     }
 
     public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
@@ -342,7 +328,7 @@ trait InteractsWithCoEdit
             throw new Halt;
         }
 
-        if ($this->coeditCallingActions === 0) {
+        if (! $this->coeditCalledFromAction()) {
             // Called directly (the Save button, or Cmd+S while a modal is open).
             $this->mountedActions === []
                 ? $this->mountAction('coeditResolve')
@@ -429,7 +415,7 @@ trait InteractsWithCoEdit
 
         // Announced once the save is committed, so nobody pulls the version before it.
         $this->getRecord()->getConnection()->afterCommit(function () use ($labels): void {
-            $save = CoEdit::store()->recordSave($this->getCoEditRoom(), CoEdit::who(), $labels);
+            $save = CoEdit::store()->recordSave($this->getCoEditRoom(), CoEdit::who(), $labels, $this->coeditOrigin);
 
             $this->coeditVersion = $save['version'];
 
@@ -641,6 +627,22 @@ trait InteractsWithCoEdit
             ->danger()
             ->persistent()
             ->send();
+    }
+
+    /**
+     * Whether this save runs inside an action's call (a header "Save and publish"):
+     * read from the stack, not by overriding callMountedAction(), so a page that
+     * overrides it itself is still seen. Only asked at a conflict.
+     */
+    protected function coeditCalledFromAction(): bool
+    {
+        foreach (debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT | DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+            if (($frame['function'] ?? null) === 'callMountedAction' && ($frame['object'] ?? null) === $this) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function coeditTheirName(): string

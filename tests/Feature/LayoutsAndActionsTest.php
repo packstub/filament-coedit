@@ -7,6 +7,7 @@ use Packstub\CoEdit\Support\FormFields;
 use Packstub\CoEdit\Tests\Fixtures\Article;
 use Packstub\CoEdit\Tests\Fixtures\Category;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
+use Packstub\CoEdit\Tests\Fixtures\EditArticleOverridingCallMountedAction;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleWithNestedLayouts;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesWithNestedLayouts;
 
@@ -186,6 +187,23 @@ it('runs nothing after the save in a header action that stops at a conflict', fu
     $ion->fillForm(['title' => 'Autumn'])->callAction('saveAndPublish')->assertActionMounted('coeditResolve');
 
     expect($this->article->fresh())->title->toBe('Spring sale')->status->toBe('draft');
+});
+
+it('stops a header action at a conflict on a page with its own callMountedAction()', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(EditArticleOverridingCallMountedAction::class, ['record' => $this->article->getKey()]);
+
+    nestedPageAs($this->ana, $this->article)->fillForm(['title' => 'Spring sale'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn'])->callAction('saveAndPublish')->assertActionMounted('coeditResolve');
+
+    expect($this->article->fresh())->title->toBe('Spring sale')->status->toBe('draft')
+        ->and(EditArticleOverridingCallMountedAction::$calls)->toBeGreaterThan(0);
+
+    $ion->setActionData(['choices' => ['title' => 'mine']])->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->title)->toBe('Autumn');
 });
 
 it('keeps the dialog open when Save is pressed again while a modal is open', function (string $open): void {

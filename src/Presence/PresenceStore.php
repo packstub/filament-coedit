@@ -135,11 +135,11 @@ class PresenceStore
      * @param  list<string>  $fields  labels of the fields that changed
      * @return array{version: int, user: string, name: string, at: int, fields: list<string>}
      */
-    public function recordSave(string $room, array $who, array $fields): array
+    public function recordSave(string $room, array $who, array $fields, ?string $origin = null): array
     {
         $key = $this->key($room).':save';
 
-        $record = function () use ($key, $who, $fields): array {
+        $record = function () use ($key, $who, $fields, $origin): array {
             $save = [
                 // A clock, not a counter: when the entry expires the next save still
                 // numbers above every version an open page has already seen.
@@ -148,6 +148,8 @@ class PresenceStore
                 'name' => $who['name'],
                 'at' => $this->now(),
                 'fields' => array_values($fields),
+                // The page that saved, so only its own tab stays quiet about it.
+                'origin' => $origin,
             ];
 
             $this->cache()->put($key, $save, (int) config('filament-coedit.remember_saves_for', 3600));
@@ -197,7 +199,7 @@ class PresenceStore
     }
 
     /**
-     * @return array{version: int, user: string, name: string, at: int, fields: list<string>}|null
+     * @return array{version: int, user: string, name: string, at: int, fields: list<string>, origin?: ?string}|null
      */
     public function lastSave(string $room): ?array
     {
