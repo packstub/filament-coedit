@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Packstub\CoEdit\Presence\PresenceStore;
 
 function who(string $id, string $name): array
@@ -71,4 +72,24 @@ it('numbers the saves of a record', function (): void {
         ->and($second['version'])->toBe(2)
         ->and($this->store->lastSave('article:1'))->toMatchArray(['version' => 2, 'name' => 'Ion', 'fields' => ['Status', 'Price']])
         ->and($this->store->lastSave('article:2'))->toBeNull();
+});
+
+it('returns everyone else on the record from a heartbeat', function (): void {
+    $this->store->touch('article:1', 'tab-a', who('1', 'Ana'), 'editing', 'data.title');
+
+    expect($this->store->touch('article:1', 'tab-b', who('2', 'Ion'), 'editing'))
+        ->toBe($this->store->members('article:1', exceptUser: '2'))
+        ->toHaveCount(1);
+});
+
+it('lets one save of a record run at a time', function (): void {
+    $release = $this->store->acquireSaveLock('article:1');
+
+    expect(fn () => $this->store->whileSaving('article:1', fn () => 'saved', wait: 0))
+        ->toThrow(LockTimeoutException::class)
+        ->and($this->store->whileSaving('article:2', fn () => 'saved', wait: 0))->toBe('saved');
+
+    $release();
+
+    expect($this->store->whileSaving('article:1', fn () => 'saved', wait: 0))->toBe('saved');
 });

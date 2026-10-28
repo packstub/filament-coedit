@@ -3,6 +3,7 @@
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Sleep;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
 use Packstub\CoEdit\Events\ConflictDetected;
@@ -130,4 +131,24 @@ it('leaves ignored fields to plain Filament in the modal', function (): void {
 
 it('shows who is on the record inside the modal', function (): void {
     openModalAs($this->ion, $this->article)->assertSeeLivewire(Presence::class);
+});
+
+it('waits for another save of the same record in the modal too', function (): void {
+    Sleep::fake(syncWithCarbon: true);
+
+    $release = CoEdit::store()->acquireSaveLock(PresenceStore::room($this->article));
+
+    openModalAs($this->ion, $this->article)
+        ->fillForm(['title' => 'Autumn launch'])
+        ->callMountedAction()
+        ->assertNotified(__('filament-coedit::coedit.busy'));
+
+    expect($this->article->fresh()->title)->toBe('Spring launch');
+
+    $release();
+
+    openModalAs($this->ion, $this->article)->fillForm(['title' => 'Autumn launch'])->callMountedAction();
+
+    expect($this->article->fresh()->title)->toBe('Autumn launch')
+        ->and(CoEdit::store()->whileSaving(PresenceStore::room($this->article), fn () => 'free', wait: 0))->toBe('free');
 });

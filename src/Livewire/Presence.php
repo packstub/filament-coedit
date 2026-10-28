@@ -46,9 +46,9 @@ class Presence extends Component
     #[Renderless]
     public function heartbeat(mixed $field = null): array
     {
-        CoEdit::store()->touch($this->room, $this->tab, CoEdit::who(), $this->mode, $this->sanitizeField($field));
+        $members = CoEdit::store()->touch($this->room, $this->tab, CoEdit::who(), $this->mode, $this->sanitizeField($field));
 
-        return $this->snapshot();
+        return $this->snapshotWith($members);
     }
 
     #[Renderless]
@@ -72,13 +72,23 @@ class Presence extends Component
     /**
      * @return array{members: list<array<string, mixed>>, save: array<string, mixed>|null}
      */
+    #[Renderless]
     public function snapshot(): array
+    {
+        return $this->snapshotWith(CoEdit::store()->members($this->room, exceptUser: CoEdit::who()['user']));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $members  the others on the record
+     * @return array{members: list<array<string, mixed>>, save: array<string, mixed>|null}
+     */
+    protected function snapshotWith(array $members): array
     {
         $me = CoEdit::who()['user'];
         $save = CoEdit::store()->lastSave($this->room);
 
         return [
-            'members' => CoEdit::store()->members($this->room, exceptUser: $me),
+            'members' => $members,
             'save' => $save !== null && $save['version'] > $this->version && $save['user'] !== $me
                 ? ['version' => $save['version'], 'name' => $save['name'], 'at' => $save['at'], 'fields' => $save['fields']]
                 : null,
@@ -87,14 +97,14 @@ class Presence extends Component
 
     public function render(): View
     {
-        CoEdit::store()->touch($this->room, $this->tab, CoEdit::who(), $this->mode);
+        $members = CoEdit::store()->touch($this->room, $this->tab, CoEdit::who(), $this->mode);
 
         return view('filament-coedit::presence', [
             'config' => [
                 'heartbeat' => max(1, (int) config('filament-coedit.heartbeat', 4)) * 1000,
                 'mode' => $this->mode,
                 'trackFields' => (bool) config('filament-coedit.track_fields', true),
-                'initial' => $this->snapshot(),
+                'initial' => $this->snapshotWith($members),
                 'now' => now()->getTimestamp(),
                 'leave' => URL::signedRoute('filament-coedit.leave', ['room' => $this->room, 'tab' => $this->tab], absolute: false),
             ],

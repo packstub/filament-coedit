@@ -121,16 +121,20 @@ Listen for these to keep an audit trail or notify the person whose change was ke
 
 ### Your own save()
 
-If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open):
+If your edit page overrides `save()`, the trait's version is not used. Call the merge yourself and stop when it returns `false` (the dialog is open). Wrap both in `whileSaving()` so two saves of the record never run at the same time:
 
 ```php
+use Packstub\CoEdit\CoEdit;
+
 public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
 {
-    if (! $this->coeditMergeBeforeSave()) {
-        return;
-    }
+    CoEdit::store()->whileSaving($this->getCoEditRoom(), function (): void {
+        if (! $this->coeditMergeBeforeSave()) {
+            return;
+        }
 
-    // your save
+        // your save
+    });
 }
 ```
 
@@ -182,7 +186,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 - A toggle never conflicts: it only has two values, so if they flipped it, you either left it alone (theirs is kept) or flipped it the same way.
 - Relationship selects show related records by name in the dialog, even when their options are searched rather than preloaded.
 - A tab in the background skips its heartbeats, so it drops off after `timeout` seconds and comes back as soon as its user switches to it. A person with the record open in another, visible tab stays on.
-- The merge runs in the same request as the save, a few milliseconds before Filament writes. Two saves landing in the same instant can still overwrite each other. Co-Edit covers the minutes someone spends editing, not those last few milliseconds.
+- Saves of the same record run one at a time (a lock in the cache store), so two people pressing Save in the same instant are merged one after the other instead of overwriting each other. A save that waits more than 10 seconds for another one stops with a "try again" notice and writes nothing. Without a store that supports locks the saves are not serialised.
 - If someone deletes the record while you are editing, your save never recreates it: Filament can no longer load the record and the request stops before anything is written.
 - Names and avatars come from your panel (`getFilamentName()`, `getFilamentAvatarUrl()`), so people look the way they look everywhere else in the panel.
 
@@ -192,7 +196,7 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 composer test
 ```
 
-The suite has 95+ tests: the merge rules and value comparison on their own, presence in the cache, and two or three people editing on real Filament edit pages and modal actions (relationships, nested and hidden fields, file uploads, a third save landing while the dialog is open, ignored fields, events, tenants, tampering from the browser). `scripts/screenshots.mjs` drives three real browsers through the whole flow and checks every step.
+The suite has 100+ tests: the merge rules and value comparison on their own, presence in the cache, and two or three people editing on real Filament edit pages and modal actions (relationships, nested and hidden fields, file uploads, a third save landing while the dialog is open, ignored fields, events, tenants, tampering from the browser). `scripts/screenshots.mjs` drives three real browsers through the whole flow and checks every step.
 
 Try it with three people: `composer serve` starts a workbench panel on `http://127.0.0.1:8000/admin` with Products (edit pages) and Suppliers (modal edits). Log in as ion@, ana@ or mihai@example.com, password `password`, in a few private windows.
 

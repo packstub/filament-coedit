@@ -5,6 +5,7 @@
     x-on:focusout.document="focusLeft()"
     x-on:livewire:navigating.window="leave()"
     x-on:pagehide.window="leave()"
+    x-on:pageshow.window="$event.persisted && resume()"
     x-on:filament-coedit-seen.window="save = null"
     class="fi-coedit"
     role="status"
@@ -67,6 +68,8 @@
         save: config.initial.save,
         field: null,
         timer: null,
+        stopped: false,
+        cleanups: [],
         markers: [],
         skew: Math.floor(Date.now() / 1000) - config.now,
         clock: Date.now(),
@@ -79,15 +82,21 @@
 
             this.schedule(0)
             this.$nextTick(() => this.mark())
-            setInterval(() => (this.clock = Date.now()), 15000)
+
+            const clock = setInterval(() => (this.clock = Date.now()), 15000)
+            this.cleanups.push(() => clearInterval(clock))
 
             // A page update morphs the form back to the server's markup; put the markers back on.
-            Livewire.hook('commit', ({ succeed }) => succeed(() => queueMicrotask(() => this.markers.length && this.mark())))
+            const unhook = Livewire.hook('commit', ({ succeed }) => succeed(() => queueMicrotask(() => this.markers.length && this.mark())))
+            typeof unhook === 'function' && this.cleanups.push(unhook)
         },
 
+        // Gone for good (a modal closing, SPA navigation): nothing may report this tab again.
         destroy() {
             this.leave()
             this.unmark()
+            this.cleanups.forEach((cleanup) => cleanup())
+            this.cleanups = []
         },
 
         get visible() {
@@ -100,7 +109,10 @@
 
         schedule(delay = config.heartbeat) {
             clearTimeout(this.timer)
-            this.timer = setTimeout(() => this.beat(), delay)
+
+            if (! this.stopped) {
+                this.timer = setTimeout(() => this.beat(), delay)
+            }
         },
 
         async beat() {
@@ -110,6 +122,13 @@
 
             try {
                 const snapshot = await this.$wire.heartbeat(this.field)
+
+                // Left while this heartbeat was out: the server may have seen it after
+                // the beacon, so leave once more and ignore the answer.
+                if (this.stopped) {
+                    return navigator.sendBeacon(config.leave)
+                }
+
                 this.members = snapshot.members
                 this.save = snapshot.save
                 this.mark()
@@ -128,8 +147,19 @@
 
         // A beacon survives the tab closing; a Livewire request might not.
         leave() {
+            if (this.stopped) {
+                return
+            }
+
+            this.stopped = true
             clearTimeout(this.timer)
             navigator.sendBeacon(config.leave) || this.$wire.leave()
+        },
+
+        // Back from the browser's back-forward cache after pagehide left the record.
+        resume() {
+            this.stopped = false
+            this.schedule(0)
         },
 
         focusChanged(target) {

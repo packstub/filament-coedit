@@ -6,6 +6,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Arr;
 use Livewire\Attributes\Locked;
@@ -26,7 +27,7 @@ use Packstub\CoEdit\Support\FormFields;
  * you both changed open a dialog to pick per field. Nobody waits on a lock.
  *
  * A page that overrides save() itself calls coeditMergeBeforeSave() first and
- * stops when it returns false.
+ * stops when it returns false, ideally inside CoEdit::store()->whileSaving().
  */
 trait InteractsWithCoEdit
 {
@@ -55,6 +56,13 @@ trait InteractsWithCoEdit
     /** True while the dialog's own submit is saving, for this request only. */
     protected bool $coeditResolving = false;
 
+    /**
+     * True once this request's save has merged, until Filament reports it saved.
+     * Filament also reports saves of header actions (a CreateAction) for this
+     * page; those must not move the merge base onto unsaved edits.
+     */
+    protected bool $coeditMerged = false;
+
     public function mountInteractsWithCoEdit(): void
     {
         $this->coeditBase = $this->coeditFields($this->data ?? []);
@@ -82,11 +90,24 @@ trait InteractsWithCoEdit
     {
         $this->coeditSaveArguments = [$shouldRedirect, $shouldSendSavedNotification];
 
-        if (! $this->coeditMergeBeforeSave()) {
-            return;
-        }
+        try {
+            // One save per record at a time: two people pressing Save at once
+            // would otherwise both merge against the version before the other's.
+            CoEdit::store()->whileSaving($this->getCoEditRoom(), function () use ($shouldRedirect, $shouldSendSavedNotification): void {
+                if (! $this->coeditMergeBeforeSave()) {
+                    return;
+                }
 
-        parent::save($shouldRedirect, $shouldSendSavedNotification);
+                parent::save($shouldRedirect, $shouldSendSavedNotification);
+            });
+        } catch (LockTimeoutException) {
+            Notification::make()
+                ->title(__('filament-coedit::coedit.busy'))
+                ->warning()
+                ->send();
+        } finally {
+            $this->coeditMerged = false;
+        }
     }
 
     /**
@@ -95,7 +116,13 @@ trait InteractsWithCoEdit
      */
     public function coeditPull(): void
     {
-        $theirs = $this->coeditTheirs();
+        try {
+            $theirs = $this->coeditTheirs();
+        } catch (ModelNotFoundException) {
+            $this->coeditNotifyDeleted();
+
+            return;
+        }
 
         if ($theirs === null) {
             $this->coeditAcknowledge(advanceVersion: true);
@@ -151,6 +178,11 @@ trait InteractsWithCoEdit
      */
     protected function coeditResolve(array $choices): void
     {
+        // The dialog can be mounted from the browser at any time; without conflicts it has nothing to settle.
+        if ($this->coeditConflicts === []) {
+            return;
+        }
+
         $settled = [];
 
         foreach ($this->coeditConflicts as $field) {
@@ -186,23 +218,22 @@ trait InteractsWithCoEdit
         try {
             $theirs = $this->coeditTheirs();
         } catch (ModelNotFoundException) {
-            Notification::make()
-                ->title(__('filament-coedit::coedit.deleted', ['name' => $this->coeditTheirName()]))
-                ->danger()
-                ->persistent()
-                ->send();
+            $this->coeditNotifyDeleted();
 
             return false;
         }
 
         if ($theirs === null) {
-            return true;
+            return $this->coeditMerged = true;
         }
 
         $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditFields($this->data), $theirs);
         $name = $this->coeditTheirName();
 
         $this->data = [...$this->data, ...$result->data];
+        // What is in the database now is the base for every field not in conflict,
+        // so the save afterwards only reports the fields you changed.
+        $this->coeditBase = [...$this->coeditBase, ...Arr::except($theirs, $result->conflicts)];
         $this->coeditAcknowledge(advanceVersion: false);
 
         if ($result->taken !== []) {
@@ -216,14 +247,13 @@ trait InteractsWithCoEdit
         }
 
         if (! $result->hasConflicts()) {
-            return true;
+            return $this->coeditMerged = true;
         }
 
         ConflictDetected::dispatch($this->getRecord(), auth()->user(), $result->conflicts, $name);
 
         $this->coeditConflicts = $result->conflicts;
         $this->coeditTheirs = Arr::only($theirs, $result->conflicts);
-        $this->coeditBase = [...$this->coeditBase, ...Arr::except($theirs, $result->conflicts)];
 
         if ($this->coeditResolving) {
             // A newer save conflicts while the dialog is submitting: Filament would
@@ -244,6 +274,14 @@ trait InteractsWithCoEdit
      */
     public function coeditAfterSave(): void
     {
+        // Only after this page's own merged save: not for a header action's
+        // save, and not when called from the browser.
+        if (! $this->coeditMerged) {
+            return;
+        }
+
+        $this->coeditMerged = false;
+
         $data = $this->coeditFields($this->data);
         $changed = ThreeWayMerge::changed($this->coeditBase, $data);
 
@@ -253,16 +291,17 @@ trait InteractsWithCoEdit
             return;
         }
 
-        $save = CoEdit::store()->recordSave(
-            $this->getCoEditRoom(),
-            CoEdit::who(),
-            array_map(fn (string $field): string => FormFields::label($this->form, $field), $changed),
-        );
+        $labels = array_map(fn (string $field): string => FormFields::label($this->form, $field), $changed);
 
-        $this->coeditVersion = $save['version'];
+        // Announced once the save is committed, so nobody pulls the version before it.
+        $this->getRecord()->getConnection()->afterCommit(function () use ($labels): void {
+            $save = CoEdit::store()->recordSave($this->getCoEditRoom(), CoEdit::who(), $labels);
 
-        $this->dispatch('coedit-acknowledged', version: $save['version'])->to(Presence::class);
-        $this->js("window.dispatchEvent(new CustomEvent('filament-coedit-seen'))");
+            $this->coeditVersion = $save['version'];
+
+            $this->dispatch('coedit-acknowledged', version: $save['version'])->to(Presence::class);
+            $this->js("window.dispatchEvent(new CustomEvent('filament-coedit-seen'))");
+        });
     }
 
     /**
@@ -295,6 +334,15 @@ trait InteractsWithCoEdit
     protected function coeditFields(array $data): array
     {
         return FormFields::only($this->form, $data, $this->getCoEditIgnoredFields());
+    }
+
+    protected function coeditNotifyDeleted(): void
+    {
+        Notification::make()
+            ->title(__('filament-coedit::coedit.deleted', ['name' => $this->coeditTheirName()]))
+            ->danger()
+            ->persistent()
+            ->send();
     }
 
     protected function coeditTheirName(): string

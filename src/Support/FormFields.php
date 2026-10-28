@@ -2,6 +2,7 @@
 
 namespace Packstub\CoEdit\Support;
 
+use Closure;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Schema;
@@ -121,9 +122,17 @@ class FormFields
         }
 
         $related = $field->getRelationship()->getRelated();
+        $query = $related->newQuery()->whereKey($keys);
 
-        return $related->newQuery()
-            ->whereKey($keys)
+        // The keys on your side come from the browser: only name records the
+        // field itself would offer, under its relationship query.
+        $modify = (fn (): ?Closure => property_exists($this, 'modifyRelationshipQueryUsing') ? $this->modifyRelationshipQueryUsing : null)->call($field);
+
+        if ($modify) {
+            $query = $field->evaluate($modify, ['query' => $query, 'search' => null]) ?? $query;
+        }
+
+        return $query
             ->get()
             ->mapWithKeys(fn (Model $record): array => [
                 (string) $record->getKey() => $field->hasOptionLabelFromRecordUsingCallback()
