@@ -4,6 +4,7 @@ use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Defer\DeferredCallbackCollection;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Sleep;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
@@ -11,6 +12,8 @@ use Packstub\CoEdit\Events\ConflictDetected;
 use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
+use Packstub\CoEdit\Tests\Fixtures\ListArticlesChainingAfterCoEdit;
+use Packstub\CoEdit\Tests\Fixtures\ListArticlesFillingAfterCoEdit;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesHaltingBefore;
 
 use function Pest\Livewire\livewire;
@@ -171,4 +174,44 @@ it('releases the save lock by the end of the request when your own before() halt
     app(DeferredCallbackCollection::class)->invoke();
 
     expect(CoEdit::store()->whileSaving($room, fn () => 'free', wait: 0))->toBe('free');
+});
+
+it('still merges when before() and after() are chained after coEdit()', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(ListArticlesChainingAfterCoEdit::class)->mountAction(TestAction::make('edit')->table($this->article));
+
+    anaSavesInModal($this->article, ['status' => 'review']);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn launch'])->callMountedAction()->assertNotified('Kept Ana\'s changes');
+
+    expect($this->article->fresh())->title->toBe('Autumn launch')->status->toBe('review')
+        ->and(ListArticlesChainingAfterCoEdit::$calls)->toBe(2)
+        ->and(CoEdit::store()->lastSave(PresenceStore::room($this->article)))->toMatchArray(['name' => 'Ion', 'fields' => ['Title']]);
+});
+
+it('says so when afterFormFilled() chained after coEdit() leaves nothing to merge with', function (): void {
+    config(['app.debug' => true]);
+    $this->actingAs($this->ion);
+
+    expect(fn () => livewire(ListArticlesFillingAfterCoEdit::class)
+        ->mountAction(TestAction::make('edit')->table($this->article))
+        ->fillForm(['title' => 'Autumn launch'])
+        ->callMountedAction())
+        ->toThrow(LogicException::class, 'Call afterFormFilled() before coEdit()');
+});
+
+it('reports it in production instead of failing the save', function (): void {
+    config(['app.debug' => false]);
+    Exceptions::fake();
+    $this->actingAs($this->ion);
+
+    livewire(ListArticlesFillingAfterCoEdit::class)
+        ->mountAction(TestAction::make('edit')->table($this->article))
+        ->fillForm(['title' => 'Autumn launch'])
+        ->callMountedAction();
+
+    Exceptions::assertReported(fn (LogicException $exception): bool => str_contains($exception->getMessage(), 'Call afterFormFilled() before coEdit()'));
+
+    expect($this->article->fresh()->title)->toBe('Autumn launch');
 });

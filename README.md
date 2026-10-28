@@ -96,14 +96,14 @@ use Filament\Actions\EditAction;
 ])
 ```
 
-The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. Call `coEdit()` last, because it wraps the `afterFormFilled()`, `before()` and `after()` callbacks already set on the action. `coEdit(ignore: ['views'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
+The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. The merge runs inside the save, after your `before()`, so `before()` and `after()` go anywhere in the chain. Set `afterFormFilled()` before `coEdit()`, which wraps it: one set after replaces the fingerprint the merge needs, and the save then fails loudly (in production: is reported) instead of overwriting anyone unseen. `coEdit(ignore: ['views'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
 
 ### Leaving fields out
 
 Some fields belong to someone else: a counter a job updates, or a status a webhook sets. Left out of the merge, they save as they do in plain Filament:
 
 ```php
-public function getCoEditIgnoredFields(): array
+protected function getCoEditIgnoredFields(): array
 {
     return ['views'];
 }
@@ -143,7 +143,7 @@ public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotificat
 
 ### Rooms
 
-A room is one record: its database, its morph class and its key. Including the database keeps two tenants' product #5 apart in database-per-tenant apps. To decide differently, for example per team on a shared database, register a resolver in a service provider:
+A room is one record: its database, its morph class and its key. Including the database keeps two tenants' product #5 apart in database-per-tenant apps. Tenants that share a database name, such as one Postgres schema per tenant or databases of the same name on separate servers, need the resolver below, or their people see each other on records with the same key. To decide differently, for example per team on a shared database, register a resolver in a service provider:
 
 ```php
 use Packstub\CoEdit\Presence\PresenceStore;
@@ -151,7 +151,7 @@ use Packstub\CoEdit\Presence\PresenceStore;
 PresenceStore::resolveRoomUsing(fn (Model $record): string => $record->team_id.':'.$record->getMorphClass().':'.$record->getKey());
 ```
 
-Presence on a custom Livewire page works the same way: use `HasPresence` and override `getCoEditRoom()`.
+Presence on a custom Livewire page works the same way: use `HasPresence` and override `getCoEditRoom()` (keep it `protected`: a public method on a Livewire page can be called from the browser).
 
 ## How the merge works
 

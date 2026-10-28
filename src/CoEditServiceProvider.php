@@ -69,8 +69,8 @@ class CoEditServiceProvider extends PackageServiceProvider
                     return '';
                 }
 
-                /** @var HasPresence $page */
-                return $page->renderCoEditPresence()->render();
+                // Protected, so the browser cannot call it on the page.
+                return (fn (): string => $this->renderCoEditPresence()->render())->call($page);
             },
         );
 

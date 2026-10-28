@@ -18,6 +18,8 @@ use Packstub\CoEdit\Livewire\Presence;
 use Packstub\CoEdit\Merge\ThreeWayMerge;
 use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Support\FormFields;
+use ReflectionObject;
+use ReflectionProperty;
 
 /**
  * For EditRecord pages: presence in the header, and a save that merges.
@@ -81,7 +83,7 @@ trait InteractsWithCoEdit
         $this->coeditVersion = (int) (CoEdit::store()->lastSave($this->getCoEditRoom())['version'] ?? 0);
     }
 
-    public function getCoEditMode(): string
+    protected function getCoEditMode(): string
     {
         return 'editing';
     }
@@ -93,7 +95,7 @@ trait InteractsWithCoEdit
      *
      * @return list<string>
      */
-    public function getCoEditIgnoredFields(): array
+    protected function getCoEditIgnoredFields(): array
     {
         return [];
     }
@@ -106,6 +108,10 @@ trait InteractsWithCoEdit
             // One save per record at a time: two people pressing Save at once
             // would otherwise both merge against the version before the other's.
             CoEdit::store()->whileSaving($this->getCoEditRoom(), function () use ($shouldRedirect, $shouldSendSavedNotification): void {
+                // Your own input first (access is checked on every request already), so an
+                // invalid form never opens the dialog and then fails behind it.
+                $this->form->validate();
+
                 if (! $this->coeditMergeBeforeSave()) {
                     return;
                 }
@@ -360,17 +366,39 @@ trait InteractsWithCoEdit
      */
     protected function coeditFilled(): array
     {
-        $mine = $this->data;
+        // Every public property, not only the form: fillForm() may reset page state
+        // too (Filament's Translatable concern resets the active locale), and the
+        // save that follows must run on the page as the person left it.
+        $properties = array_filter(
+            (new ReflectionObject($this))->getProperties(ReflectionProperty::IS_PUBLIC),
+            fn (ReflectionProperty $property): bool => ! $property->isStatic() && ! $property->isReadOnly(),
+        );
+
+        $page = [];
+
+        foreach ($properties as $property) {
+            if ($property->isInitialized($this)) {
+                $page[$property->getName()] = $property->getValue($this);
+            }
+        }
 
         $this->getRecord()->refresh();
 
         // The way the page filled itself at mount (beforeFill/afterFill hooks and any
         // fillForm() override included), so a value set there is no change of theirs.
-        $this->fillForm();
-        $filled = $this->coeditFields($this->data ?? []);
-        $this->data = $mine;
+        try {
+            $this->fillForm();
 
-        return $filled;
+            return $this->coeditFields($this->data ?? []);
+        } finally {
+            foreach ($properties as $property) {
+                if (array_key_exists($property->getName(), $page)) {
+                    $property->setValue($this, $page[$property->getName()]);
+                } elseif ($property->isInitialized($this) && $property->hasType()) {
+                    unset($this->{$property->getName()});
+                }
+            }
+        }
     }
 
     /**
