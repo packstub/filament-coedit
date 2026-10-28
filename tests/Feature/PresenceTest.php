@@ -1,5 +1,6 @@
 <?php
 
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Support\ArrayRecord;
 use Filament\Tables\Table;
@@ -296,5 +297,20 @@ it('does not announce a modal save to the page it was made on, only to your othe
 
     expect($this->article->fresh()->title)->toBe('From the modal')
         ->and($here->instance()->snapshot()['save'])->toBeNull()
+        ->and($there->instance()->snapshot()['save'])->toMatchArray(['self' => true]);
+});
+
+it('tells your other tabs about a save you made in a list page\'s modal', function (): void {
+    $this->actingAs($this->ion);
+    $otherTab = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+    $there = livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'origin' => $otherTab->get('coeditOrigin')]);
+
+    livewire(ListArticles::class)
+        ->mountAction(TestAction::make('edit')->table($this->article))
+        ->fillForm(['title' => 'From the list'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    expect(CoEdit::store()->lastSave($this->room)['origin'])->toBeString()->toHaveLength(16)
         ->and($there->instance()->snapshot()['save'])->toMatchArray(['self' => true]);
 });

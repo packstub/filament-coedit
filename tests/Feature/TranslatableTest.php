@@ -6,6 +6,8 @@ use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Support\FormFields;
 use Packstub\CoEdit\Tests\Fixtures\EditPage;
 use Packstub\CoEdit\Tests\Fixtures\EditPageIgnoringBody;
+use Packstub\CoEdit\Tests\Fixtures\EditPageWithoutBody;
+use Packstub\CoEdit\Tests\Fixtures\EditPageWithRichBody;
 use Packstub\CoEdit\Tests\Fixtures\Page;
 
 use function Pest\Livewire\livewire;
@@ -121,4 +123,63 @@ it('leaves an ignored translated field to plain Filament in every locale', funct
 
     expect((fn (): array => $this->coeditFields())->call($ion->instance()))->toHaveKeys(['title@en', 'title@ro', 'slug'])
         ->not->toHaveKeys(['body@en', 'body@ro', 'body']);
+});
+
+it('never asks about a rich text locale you did not touch, after switching locale', function (): void {
+    $this->page->update(['body' => ['en' => '<p>Leaves fall</p>', 'ro' => '<p>Cad frunzele</p>']]);
+
+    $this->actingAs($this->ion);
+    $ion = livewire(EditPageWithRichBody::class, ['record' => $this->page->getKey()]);
+    $ion->set('activeLocale', 'ro')->fillForm(['slug' => 'toamna']);
+
+    $this->actingAs($this->ana);
+    livewire(EditPageWithRichBody::class, ['record' => $this->page->getKey()])->fillForm(['body' => '<p>Leaves fall slowly</p>'])->call('save')->assertHasNoFormErrors();
+
+    $this->actingAs($this->ion);
+    $ion->call('save')->assertHasNoFormErrors()->assertActionNotMounted('coeditResolve');
+
+    $page = $this->page->fresh();
+    expect($page->getTranslation('body', 'en'))->toContain('Leaves fall slowly')
+        ->and($page->getTranslation('body', 'en'))->not->toContain('<p>Leaves fall</p>')
+        ->and($page->slug)->toBe('toamna');
+});
+
+it('keeps a pulled rich text locale in the shape the plugin saves', function (): void {
+    $this->page->update(['body' => ['en' => '<p>Leaves fall</p>', 'ro' => '<p>Cad frunzele</p>']]);
+
+    $this->actingAs($this->ion);
+    $ion = livewire(EditPageWithRichBody::class, ['record' => $this->page->getKey()]);
+
+    $this->actingAs($this->ana);
+    livewire(EditPageWithRichBody::class, ['record' => $this->page->getKey()])->set('activeLocale', 'ro')->fillForm(['body' => '<p>Cad frunzele încet</p>'])->call('save')->assertHasNoFormErrors();
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['slug' => 'autumn-2026'])->call('save')->assertHasNoFormErrors()->assertActionNotMounted('coeditResolve');
+
+    expect($this->page->fresh()->getTranslation('body', 'ro'))->toBeString()->toContain('Cad frunzele încet');
+});
+
+it('keeps a colleague\'s edit to a translatable attribute your form leaves out', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(EditPageWithoutBody::class, ['record' => $this->page->getKey()]);
+
+    translatedPageAs($this->ana, $this->page, 'ro')->fillForm(['body' => 'Cad frunzele încet'])->call('save')->assertHasNoFormErrors();
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['slug' => 'autumn-2026'])->call('save')->assertHasNoFormErrors();
+
+    $page = $this->page->fresh();
+    expect($page->getTranslation('body', 'ro'))->toBe('Cad frunzele încet')->and($page->slug)->toBe('autumn-2026');
+});
+
+it('refuses to save a locale the page does not offer', function (): void {
+    $ion = translatedPageAs($this->ion, $this->page);
+
+    translatedPageAs($this->ana, $this->page)->fillForm(['slug' => 'by-ana'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->set('activeLocale', 'xx')->fillForm(['title' => 'X'])->call('save');
+
+    $page = $this->page->fresh();
+    expect($page->slug)->toBe('by-ana')->and($page->getTranslations('title'))->not->toHaveKey('xx');
 });
