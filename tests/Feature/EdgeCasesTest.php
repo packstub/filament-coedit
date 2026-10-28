@@ -13,6 +13,7 @@ use Packstub\CoEdit\Support\FormFields;
 use Packstub\CoEdit\Tests\Fixtures\Article;
 use Packstub\CoEdit\Tests\Fixtures\Category;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
+use Packstub\CoEdit\Tests\Fixtures\Label;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\NamedUser;
 
@@ -278,4 +279,17 @@ it('names related records only through the field\'s own relationship query', fun
 
     expect(FormFields::display($schema, 'category_id', $visible->getKey()))->toBe('News')
         ->and(FormFields::display($schema, 'category_id', $secret->getKey()))->toBe((string) $secret->getKey());
+});
+
+it('names related records of a field whose query mentions the pivot table', function (): void {
+    $label = Label::query()->create(['name' => 'Urgent']);
+    $this->article->labels()->attach($label);
+
+    $schema = Schema::make(livewire(ListArticles::class)->instance())
+        ->model($this->article)
+        ->components([
+            Select::make('labels')->multiple()->relationship('labels', 'name', fn ($query) => $query->orderBy('article_label.article_id')),
+        ]);
+
+    expect(FormFields::display($schema, 'labels', [$label->getKey()]))->toBe('Urgent');
 });

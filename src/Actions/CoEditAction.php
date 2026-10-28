@@ -17,6 +17,8 @@ use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Support\FormFields;
 use Throwable;
 
+use function Illuminate\Support\defer;
+
 /**
  * Co-Edit for modal edits: `EditAction::make()->coEdit()` in relation
  * managers, simple (modal) resources and table record actions.
@@ -71,23 +73,33 @@ class CoEditAction
             if ($schema = self::modalSchema($action)) {
                 $room = PresenceStore::room($record);
 
-                // One save per record at a time, as on edit pages. Should the update
-                // throw, after() never runs and the lock expires on its own.
+                // One save per record at a time, as on edit pages. after() releases it
+                // once the update is committed; when that never happens (your before()
+                // halts, the update throws, the transaction rolls back), the end of the
+                // request does.
                 try {
-                    $releases[$room] = CoEdit::store()->acquireSaveLock($room);
+                    $release = $releases[$room] = CoEdit::store()->acquireSaveLock($room);
                 } catch (LockTimeoutException) {
                     Notification::make()->title(__('filament-coedit::coedit.busy'))->warning()->send();
 
                     $action->halt();
                 }
 
+                defer($release, 'filament-coedit-save-lock:'.$room, always: true);
+
                 try {
                     $changed[$room] = self::merge($action, $schema, $record, $ignore);
+
+                    if ($before) {
+                        $action->evaluate($before);
+                    }
                 } catch (Throwable $exception) {
-                    $releases[$room]();
+                    $release();
 
                     throw $exception;
                 }
+
+                return;
             }
 
             if ($before) {
