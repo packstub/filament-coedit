@@ -77,3 +77,24 @@ it('merges a row edited in a relation manager on a Co-Edit page', function (): v
     $this->actingAs($this->ion);
     livewire(EditCategory::class, ['record' => $this->category->getKey()])->assertSeeLivewire(Presence::class);
 });
+
+it('stops once on a conflict in a relation manager, then keeps yours', function (): void {
+    $manager = function ($user) {
+        $this->actingAs($user);
+
+        return livewire(ArticlesRelationManager::class, ['ownerRecord' => $this->category, 'pageClass' => EditCategory::class]);
+    };
+
+    $ion = $manager($this->ion)->mountAction(TestAction::make('edit')->table($this->article));
+    $manager($this->ana)->mountAction(TestAction::make('edit')->table($this->article))->fillForm(['title' => 'Ana\'s title'])->callMountedAction();
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn'])->callMountedAction()->assertNotified('Ana saved this record while you were editing');
+    app(DeferredCallbackCollection::class)->invoke();
+
+    expect($this->article->fresh()->title)->toBe('Ana\'s title');
+
+    $ion->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->title)->toBe('Autumn');
+});
