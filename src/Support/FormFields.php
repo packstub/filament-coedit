@@ -19,6 +19,8 @@ use UnitEnum;
  * What a merge needs to know about a form: which top-level fields it edits,
  * what they are called and how a value reads to a person. Shared by edit
  * pages and modal edit actions.
+ *
+ * @internal
  */
 class FormFields
 {
@@ -31,11 +33,24 @@ class FormFields
     public static function names(Schema $schema, array $ignore = []): array
     {
         $names = array_map(
-            fn (Field $field): string => Str::before($field->getStatePath(isAbsolute: false), '.'),
+            fn (Field $field): string => Str::before(self::path($schema, $field), '.'),
             array_values($schema->getFlatFields(withHidden: true)),
         );
 
         return array_values(array_diff(array_unique($names), $ignore));
+    }
+
+    /**
+     * A field's path in the form's data: from the form, not from its parent, so a
+     * field in a section with its own state path (`meta`) or in a relationship
+     * group (`category`) is `meta.color`, not `color`.
+     */
+    public static function path(Schema $schema, Field $field): string
+    {
+        $root = $schema->getStatePath();
+        $path = $field->getStatePath();
+
+        return filled($root) && str_starts_with($path, $root.'.') ? substr($path, strlen($root) + 1) : $field->getStatePath(isAbsolute: false);
     }
 
     /**
@@ -51,7 +66,7 @@ class FormFields
     public static function find(Schema $schema, string $name): ?Field
     {
         foreach ($schema->getFlatFields(withHidden: true) as $field) {
-            if ($field->getStatePath(isAbsolute: false) === $name) {
+            if (self::path($schema, $field) === $name) {
                 return $field;
             }
         }

@@ -293,7 +293,11 @@ trait InteractsWithCoEdit
             throw new Halt;
         }
 
-        $this->mountAction('coeditResolve');
+        // Started from another action (a header "Save and publish"): replace it, as
+        // Filament unmounts an action once it is done, and the dialog with it.
+        $this->mountedActions === []
+            ? $this->mountAction('coeditResolve')
+            : $this->replaceMountedAction('coeditResolve');
 
         return false;
     }
@@ -469,7 +473,8 @@ trait InteractsWithCoEdit
     protected function coeditNotifyDeleted(): void
     {
         Notification::make()
-            ->title(__('filament-coedit::coedit.deleted', ['name' => e($this->coeditTheirName())]))
+            // Deletes are not recorded, so the last person who saved may not be the one.
+            ->title(__('filament-coedit::coedit.deleted', ['name' => __('filament-coedit::coedit.someone')]))
             ->danger()
             ->persistent()
             ->send();

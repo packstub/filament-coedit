@@ -15,6 +15,7 @@ use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesChainingAfterCoEdit;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesFillingAfterCoEdit;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesHaltingBefore;
+use Packstub\CoEdit\Tests\Fixtures\ListArticlesValidatingAfterCoEdit;
 use Packstub\CoEdit\Tests\Fixtures\ListArticlesWithOwnModalSave;
 
 use function Pest\Livewire\livewire;
@@ -243,4 +244,30 @@ it('keeps a colleague\'s edit to a title that only looks like a number in the mo
     $ion->fillForm(['price' => 20])->callMountedAction()->assertHasNoFormErrors()->assertNotified('Kept Ana\'s changes');
 
     expect($this->article->fresh())->title->toBe('1.10')->price->toBe('20.00');
+});
+
+it('says so when beforeFormValidated() chained after coEdit() replaces the merge', function (): void {
+    config(['app.debug' => true]);
+    $this->actingAs($this->ion);
+
+    expect(fn () => livewire(ListArticlesValidatingAfterCoEdit::class)
+        ->mountAction(TestAction::make('edit')->table($this->article))
+        ->fillForm(['title' => 'Autumn launch'])
+        ->callMountedAction())
+        ->toThrow(LogicException::class, 'Call beforeFormValidated() before coEdit()');
+
+    expect($this->article->fresh()->title)->toBe('Spring launch');
+});
+
+it('merges without the avatars when presence is off', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(ListArticlesValidatingAfterCoEdit::class)->mountAction(TestAction::make('editQuietly')->table($this->article));
+    $ion->assertDontSeeLivewire(Presence::class);
+
+    anaSavesInModal($this->article, ['status' => 'review']);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn launch'])->callMountedAction()->assertNotified('Kept Ana\'s changes');
+
+    expect($this->article->fresh())->title->toBe('Autumn launch')->status->toBe('review');
 });

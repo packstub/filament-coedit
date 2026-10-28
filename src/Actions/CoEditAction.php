@@ -30,9 +30,12 @@ use function Illuminate\Support\defer;
  * changed stop the save once, with their values in a notice; submitting
  * again keeps yours. The avatars of everyone on the record sit in the modal.
  *
- * The merge runs inside the save, after your `before()`, so `before()` and
- * `after()` can be chained in any order. `afterFormFilled()` set after
- * `coEdit()` replaces the fingerprinting, which is reported, never ignored.
+ * The merge runs before the form is validated and read (relationship fields
+ * save as it is read), so `before()` and `after()` can be chained in any
+ * order. `afterFormFilled()` or `beforeFormValidated()` set after `coEdit()`
+ * replace a part of it, which the save reports instead of ignoring.
+ *
+ * @internal
  */
 class CoEditAction
 {
@@ -46,7 +49,11 @@ class CoEditAction
         $hook = fn (string $name): Closure|string|null => (fn () => $this->{$name})->call($action);
 
         $afterFormFilled = $hook('afterFormFilled');
+        $beforeFormValidated = $hook('beforeFormValidated');
         $save = $hook('action');
+
+        /** @var array<string, array{labels: list<string>, release: Closure(): void}> $merged  per record, this request */
+        $merged = [];
 
         $action->afterFormFilled(function (EditAction $action, Model $record) use ($afterFormFilled, $ignore): void {
             if ($schema = self::modalSchema($action)) {
@@ -65,9 +72,42 @@ class CoEditAction
             }
         });
 
-        // The merge wraps the save itself, not before() and after(): those take one
-        // callback each, and one chained after coEdit() would replace the merge.
-        $action->action(function (EditAction $action, Model $record) use ($save, $ignore): mixed {
+        // Before the form is validated and read, as an edit page merges before its save:
+        // reading the form saves its relationship fields, so a merge after that is too late.
+        $action->beforeFormValidated(function (EditAction $action, Model $record) use ($beforeFormValidated, $ignore, &$merged): void {
+            if ($schema = self::modalSchema($action)) {
+                $room = PresenceStore::room($record);
+
+                // One save per record at a time, as on edit pages. Released once the update
+                // is committed; when that never happens (a halt, an exception, a rollback),
+                // by the end of the request.
+                try {
+                    $release = CoEdit::store()->acquireSaveLock($room);
+                } catch (LockTimeoutException) {
+                    Notification::make()->title(__('filament-coedit::coedit.busy'))->warning()->send();
+
+                    $action->halt();
+                }
+
+                defer($release, 'filament-coedit-save-lock:'.$room, always: true);
+
+                try {
+                    $merged[$room] = ['labels' => self::merge($action, $schema, $record, $ignore), 'release' => $release];
+                } catch (Throwable $exception) {
+                    $release();
+
+                    throw $exception;
+                }
+            }
+
+            if ($beforeFormValidated) {
+                $action->evaluate($beforeFormValidated);
+            }
+        });
+
+        // The save itself checks that the merge ran: before() and after() can be chained
+        // anywhere, and a hook replaced after coEdit() must not save over the others unseen.
+        $action->action(function (EditAction $action, Model $record) use ($save, &$merged): mixed {
             $schema = self::modalSchema($action);
 
             // As Filament calls it: a method name on the page, and the modal's form injected.
@@ -79,37 +119,31 @@ class CoEditAction
             }
 
             $room = PresenceStore::room($record);
+            $merge = $merged[$room] ?? null;
+            unset($merged[$room]);
 
-            // One save per record at a time, as on edit pages. Released once the update
-            // is committed; when that never happens (a halt, an exception, a rollback),
-            // by the end of the request.
-            try {
-                $release = CoEdit::store()->acquireSaveLock($room);
-            } catch (LockTimeoutException) {
-                Notification::make()->title(__('filament-coedit::coedit.busy'))->warning()->send();
-
-                $action->halt();
+            if ($merge === null) {
+                self::misconfigured('its form was read without coEdit()\'s merge. Call beforeFormValidated() before coEdit(), not after it.');
             }
 
-            defer($release, 'filament-coedit-save-lock:'.$room, always: true);
-
             try {
-                $labels = self::merge($action, $schema, $record, $ignore);
                 $result = $save ? $action->evaluate($save, $injected) : null;
             } catch (Throwable $exception) {
-                $release();
+                $merge && $merge['release']();
 
                 throw $exception;
             }
 
             // Announced and unlocked once the update is committed.
-            $record->getConnection()->afterCommit(function () use ($room, $labels, $release): void {
-                if ($labels !== []) {
-                    CoEdit::store()->recordSave($room, CoEdit::who(), $labels);
-                }
+            if ($merge) {
+                $record->getConnection()->afterCommit(function () use ($room, $merge): void {
+                    if ($merge['labels'] !== []) {
+                        CoEdit::store()->recordSave($room, CoEdit::who(), $merge['labels']);
+                    }
 
-                $release();
-            });
+                    $merge['release']();
+                });
+            }
 
             return $result;
         });
@@ -151,10 +185,7 @@ class CoEditAction
         $mine = FormFields::only($schema, $raw, $ignore);
 
         if (! is_array($state) || ! is_array($state['base'] ?? null)) {
-            // Saving without a merge would overwrite the others unseen: say so.
-            $exception = new LogicException('Co-Edit could not merge this modal edit: its form was filled without coEdit()\'s fingerprint. Call afterFormFilled() before coEdit(), not after it.');
-
-            app()->hasDebugModeEnabled() ? throw $exception : report($exception);
+            self::misconfigured('its form was filled without coEdit()\'s fingerprint. Call afterFormFilled() before coEdit(), not after it.');
 
             return self::labelsOfChanged($schema, [], $mine);
         }
@@ -193,18 +224,14 @@ class CoEditAction
         }
 
         $name = self::theirName($record, (int) ($state['version'] ?? 0));
-        $data = $action->getData();
-
         if ($taken !== []) {
-            // Left out of the update, the refreshed record keeps their value; the form shows it too.
+            // Their value into the form before it is read: the update (and a relationship
+            // field's own save) writes what is in the database already.
             foreach ($taken as $field) {
-                unset($data[$field]);
                 $raw[$field] = $theirs[$field] ?? null;
                 $base[$field] = $theirsPrints[$field];
                 $exact[$field] = $theirsExact[$field];
             }
-
-            $action->data($data, shouldMutate: false);
 
             ChangesMerged::dispatch($record, auth()->user(), $taken, $name);
 
@@ -265,6 +292,17 @@ class CoEditAction
         }
 
         return $changed;
+    }
+
+    /**
+     * Saving without a merge would overwrite the others unseen: say so, loudly
+     * while developing, in the error log in production.
+     */
+    protected static function misconfigured(string $reason): void
+    {
+        $exception = new LogicException('Co-Edit could not merge this modal edit: '.$reason);
+
+        app()->hasDebugModeEnabled() ? throw $exception : report($exception);
     }
 
     /**

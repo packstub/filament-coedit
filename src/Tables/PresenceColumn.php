@@ -25,7 +25,7 @@ class PresenceColumn extends Column
 
         $this->label('');
         $this->width('1%');
-        $this->state(fn (Model $record): array => $this->membersOf($record));
+        $this->state(fn (mixed $record): array => $record instanceof Model ? $this->membersOf($record) : []);
     }
 
     /**
