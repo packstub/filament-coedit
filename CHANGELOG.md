@@ -7,14 +7,14 @@ All notable changes to `packstub/filament-coedit` are documented in this file.
 First release.
 
 - `InteractsWithCoEdit` for edit pages: presence in the header and a save that merges. The form as loaded is the base; on save the record is read again and filled through the same form, fields only the other person changed keep their value (and a toast names them), fields only you changed take yours, and fields you both changed open a dialog with **Keep mine** / **Use Ana's** per field. A save landing while the dialog is open is merged again before writing.
-- Value comparison that ignores form noise: numeric strings and numbers, `''`/`null`/`[]`, booleans, backed enums, date and datetime formats, and the fresh UUID keys of repeater and file upload items; real differences (zero vs empty, leading zeros, item order) still count.
+- Value comparison that ignores form noise: numeric strings and numbers, `''`/`null`/`[]`, booleans, backed enums, date and datetime formats (a zone compared in the app's time zone, a fraction only when it is not zero), and the fresh UUID keys of repeater and file upload items; real differences (zero vs empty, leading zeros, item order) still count.
 - Only fields on the form are merged; timestamps and attributes the form does not edit are never written or reported.
 - `HasPresence` for view pages.
 - Field-level presence: a coloured outline and name tag on the field each person is in, found from `wire:model` or `$entangle()`, put back after Livewire morphs the form.
 - "Ana saved this record" notice with the changed fields, **Get their changes** (pulls them into the open form without saving) and **Dismiss**; it closes as soon as the page has merged that save.
 - `EditAction::make()->coEdit()` for modal edits (relation managers, simple resources, table edit actions): the form is fingerprinted into the modal's state when it opens; on submit, fields only the other person changed are left out of the update, and a conflict stops the first submit with their values in a notice (submitting again keeps yours). Avatars and field markers in the modal; `ignore:` and `presence:` arguments; wraps the action's existing `afterFormFilled()`, `before()` and `after()` callbacks.
 - `getCoEditIgnoredFields()` to leave fields out of the merge (they save as in plain Filament).
-- Events: `ChangesMerged`, `ConflictDetected`, `ConflictResolved`.
+- Events: `ChangesMerged`, `ConflictDetected`, `ConflictResolved`. `ChangesMerged` and `ConflictResolved` are dispatched once the save is committed, never for a save that failed, stopped or rolled back; what a merge kept or the dialog settled before such a save is told with the save that goes through, one `ChangesMerged` per person whose fields were kept.
 - Rooms include the record's database, so the same id in two tenant databases never shares presence; `PresenceStore::resolveRoomUsing()` to decide otherwise.
 - When a newer save conflicts while the dialog is submitting, the dialog stays open with the new conflicts instead of closing.
 - Relationship selects show related records by name in the dialog, also when their options are searched rather than preloaded; `&nbsp;` and other entities read as plain text.
@@ -49,7 +49,7 @@ First release.
 - Merging on a page acknowledges the save notice of that record only, not of a modal open on another one.
 - Merging fills their version through your page and then restores every public property of the page, not only the form: a `fillForm()` that resets page state (Filament's Translatable concern resets the active locale) no longer makes the save write your edit to the wrong locale.
 - `before()` and `after()` chained after `coEdit()` no longer turn the modal merge off: the merge runs before the form is validated (relationship fields save as it is read) and the save checks that it ran. An `afterFormFilled()` or `beforeFormValidated()` set after `coEdit()` fails loudly (reported in production) instead of saving without a merge, and an `action()` set after still merges but is not announced; an `action()` given as a method name and the modal's `$schema` reach the save as before.
-- Fields that take their path from a layout (a section with its own `statePath()`) or a relationship group (`Group::make()->relationship()`) take part in the merge, on edit pages and in modals; they were left out and could be overwritten.
+- Fields that take their path from a layout (a section with its own `statePath()`) or a relationship group (`Group::make()->relationship()`) take part in the merge, field by field, on edit pages and in modals: two people changing two fields of one section never meet, and a relationship group is compared by the fields the form edits, not the related record's id. An ignored path leaves out every field under it.
 - A save started from another action (a header "Save and publish", with or without a confirmation) opens the conflict dialog instead of stopping without a word, and stops that action, so what it does after the save does not run.
 - A modal submit that merged and then stopped (a validation error, a halting `before()`) keeps their values as theirs: the next submit no longer reports a false conflict or writes them back over a newer save.
 - The presence component's key no longer carries a hash of the raw room.
@@ -60,6 +60,6 @@ First release.
 - `getCoEditRoom()`, `getCoEditMode()`, `getCoEditIgnoredFields()` and `renderCoEditPresence()` are protected: on a Livewire page a public method can be called from the browser, and the room names the database. Overrides should be `protected` too.
 - The browser gets the others as opaque ids, never their user model and key.
 - The leave beacon reaches apps installed in a subdirectory.
-- Text that only looks like a number is no longer reverted: whether someone else changed a field compares their version with the base exactly (both come from the database), so a version or SKU going from `1.1` to `1.10` is their change and kept; your typed `10.5` against their `10.50` is still no conflict. A modal save announces such a change too.
+- Text that only looks like a number is no longer reverted: whether someone else changed a field compares their version with the base exactly (both come from the database), so a version or SKU going from `1.1` to `1.10` is their change and kept, and text you typed compares exactly with the base too, so retyping `1.1` as `1.10` is your change; your typed `10.5` against their `10.50` is still no conflict. A modal save announces such a change too.
 - A modal's fingerprints are hashed, so its state no longer carries a copy of every field.
 - Requires Filament 4.13.3+ or 5.8.3+, the first releases past the published multi-factor authentication advisories.

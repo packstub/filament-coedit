@@ -6,6 +6,7 @@ use Illuminate\Support\Defer\DeferredCallbackCollection;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Sleep;
+use Packstub\CoEdit\Actions\CoEditAction;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
 use Packstub\CoEdit\Events\ConflictDetected;
@@ -122,6 +123,91 @@ it('dispatches ChangesMerged for fields kept from a modal merge', function (): v
     $ion->fillForm(['title' => 'X'])->callMountedAction();
 
     Event::assertDispatched(ChangesMerged::class, fn (ChangesMerged $event): bool => $event->fields === ['price'] && $event->record->is($this->article));
+});
+
+it('dispatches ChangesMerged from a modal only once the update went through', function (): void {
+    Event::fake([ChangesMerged::class]);
+
+    $ion = openModalAs($this->ion, $this->article);
+    anaSavesInModal($this->article, ['price' => 50]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->callMountedAction()->assertHasFormErrors(['title']);
+    app(DeferredCallbackCollection::class)->invoke();
+
+    Event::assertNotDispatched(ChangesMerged::class);
+
+    // The failed submit took Ana's price into the form already; this one tells.
+    $ion->fillForm(['title' => 'X'])->callMountedAction()->assertHasNoFormErrors();
+
+    Event::assertDispatchedTimes(ChangesMerged::class, 1);
+    Event::assertDispatched(ChangesMerged::class, fn (ChangesMerged $event): bool => $event->fields === ['price'] && $event->theirName === 'Ana');
+    expect($this->article->fresh())->title->toBe('X')->price->toBe('50.00');
+});
+
+it('never tells kept fields the browser made up', function (): void {
+    Event::fake([ChangesMerged::class]);
+
+    $ion = openModalAs($this->ion, $this->article);
+    anaSavesInModal($this->article, ['price' => 50]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->callMountedAction();
+    app(DeferredCallbackCollection::class)->invoke();
+
+    $ion->fillForm([CoEditAction::STATE_KEY.'.kept' => str_repeat('a', 40), 'title' => 'X'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Event::assertNotDispatched(ChangesMerged::class);
+});
+
+it('never tells a kept list replayed from another record', function (): void {
+    Event::fake([ChangesMerged::class]);
+    $other = article(['title' => 'Winter launch']);
+
+    $ion = openModalAs($this->ion, $this->article);
+    anaSavesInModal($this->article, ['price' => 50]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->callMountedAction()->assertHasFormErrors(['title']);
+    app(DeferredCallbackCollection::class)->invoke();
+
+    $kept = $ion->instance()->mountedActions[0]['data'][CoEditAction::STATE_KEY]['kept'];
+    expect($kept)->toBeString()->toHaveLength(40);
+
+    $this->actingAs($this->ion);
+    openModalAs($this->ion, $other)
+        ->fillForm([CoEditAction::STATE_KEY.'.kept' => $kept, 'title' => 'Winter sale'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Event::assertNotDispatched(ChangesMerged::class);
+});
+
+it('never tells a kept list twice, replayed on the same record', function (): void {
+    Event::fake([ChangesMerged::class]);
+
+    $ion = openModalAs($this->ion, $this->article);
+    anaSavesInModal($this->article, ['price' => 50]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->callMountedAction()->assertHasFormErrors(['title']);
+    app(DeferredCallbackCollection::class)->invoke();
+
+    $state = $ion->instance()->mountedActions[0]['data'][CoEditAction::STATE_KEY];
+
+    $ion->fillForm(['title' => 'X'])->callMountedAction()->assertHasNoFormErrors();
+    app(DeferredCallbackCollection::class)->invoke();
+
+    Event::assertDispatchedTimes(ChangesMerged::class, 1);
+
+    openModalAs($this->ion, $this->article)
+        ->fillForm([CoEditAction::STATE_KEY.'.kept' => $state['kept'], CoEditAction::STATE_KEY.'.version' => $state['version'], 'title' => 'Y'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Event::assertDispatchedTimes(ChangesMerged::class, 1);
 });
 
 it('leaves ignored fields to plain Filament in the modal', function (): void {
@@ -244,6 +330,22 @@ it('keeps a colleague\'s edit to a title that only looks like a number in the mo
     $ion->fillForm(['price' => 20])->callMountedAction()->assertHasNoFormErrors()->assertNotified('Kept Ana\'s changes');
 
     expect($this->article->fresh())->title->toBe('1.10')->price->toBe('20.00');
+});
+
+it('stops once when you retyped a title as the same-looking number and a colleague changed it', function (): void {
+    $this->article->update(['title' => '1.1']);
+    $ion = openModalAs($this->ion, $this->article);
+
+    anaSavesInModal($this->article, ['title' => '2']);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => '1.10'])->callMountedAction()->assertNotified('Ana saved this record while you were editing');
+
+    expect($this->article->fresh()->title)->toBe('2');
+
+    $ion->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->title)->toBe('1.10');
 });
 
 it('says so when beforeFormValidated() chained after coEdit() replaces the merge', function (): void {

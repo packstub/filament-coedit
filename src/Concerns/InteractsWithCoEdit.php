@@ -80,6 +80,24 @@ trait InteractsWithCoEdit
      */
     protected bool $coeditMerged = false;
 
+    /**
+     * Fields merges took from the others since the last committed save, and whose
+     * they were: told once a save is committed, also when the first save after the
+     * merge failed or rolled back.
+     *
+     * @var array<string, string> field => their name
+     */
+    #[Locked]
+    public array $coeditTaken = [];
+
+    /**
+     * What the dialog settled, told once a save with it is committed.
+     *
+     * @var array<string, 'mine'|'theirs'>
+     */
+    #[Locked]
+    public array $coeditSettled = [];
+
     /** Set once the page has mounted, so a mount hook called again from the browser does nothing. */
     #[Locked]
     public bool $coeditMounted = false;
@@ -91,7 +109,7 @@ trait InteractsWithCoEdit
         }
 
         $this->coeditMounted = true;
-        $this->coeditBase = $this->coeditFields($this->data ?? []);
+        $this->coeditBase = $this->coeditFields();
         $this->coeditVersion = (int) (CoEdit::store()->lastSave($this->getCoEditRoom())['version'] ?? 0);
     }
 
@@ -169,7 +187,7 @@ trait InteractsWithCoEdit
 
         $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditMine(), $theirs);
 
-        $this->data = [...$this->data, ...Arr::only($result->data, $result->taken)];
+        $this->coeditWrite(Arr::only($result->data, $result->taken));
         $this->coeditRebase([...$theirs, ...Arr::only($this->coeditBase, $result->conflicts)]);
         $this->coeditAcknowledge(advanceVersion: ! $result->hasConflicts());
 
@@ -191,14 +209,14 @@ trait InteractsWithCoEdit
             ->modalHeading(fn (): string => __('filament-coedit::coedit.conflict.heading', ['name' => $this->coeditTheirName()]))
             ->modalDescription(fn (): string => trans_choice('filament-coedit::coedit.conflict.description', count($this->coeditConflicts), ['name' => $this->coeditTheirName()]))
             ->schema(fn (): array => array_map(
-                fn (string $field): Radio => Radio::make("choices.{$field}")
+                fn (string $field): Radio => Radio::make('choices.'.FormFields::key($field))
                     ->label(FormFields::label($this->form, $field))
                     ->options([
                         'mine' => __('filament-coedit::coedit.conflict.mine'),
                         'theirs' => __('filament-coedit::coedit.conflict.theirs', ['name' => $this->coeditTheirName()]),
                     ])
                     ->descriptions([
-                        'mine' => FormFields::display($this->form, $field, $this->data[$field] ?? null),
+                        'mine' => FormFields::display($this->form, $field, $this->coeditFields()[$field] ?? null),
                         'theirs' => FormFields::display($this->form, $field, $this->coeditTheirs[$field] ?? null),
                     ])
                     ->default('mine')
@@ -223,12 +241,11 @@ trait InteractsWithCoEdit
         $settled = [];
 
         foreach ($this->coeditConflicts as $field) {
-            $settled[$field] = ($choices[$field] ?? 'mine') === 'theirs' ? 'theirs' : 'mine';
+            $settled[$field] = ($choices[FormFields::key($field)] ?? 'mine') === 'theirs' ? 'theirs' : 'mine';
 
             if ($settled[$field] === 'theirs') {
-                $this->data[$field] = $this->coeditTheirs[$field] ?? null;
+                $this->coeditWrite([$field => $this->coeditTheirs[$field] ?? null]);
             }
-
         }
 
         // Settled: from here on their value is the base, so the save only sees your choice.
@@ -237,7 +254,7 @@ trait InteractsWithCoEdit
         $this->coeditTheirs = [];
         $this->coeditConflicts = [];
 
-        ConflictResolved::dispatch($this->getRecord(), auth()->user(), $settled);
+        $this->coeditSettled = [...$this->coeditSettled, ...$settled];
 
         $this->coeditResolving = true;
 
@@ -268,14 +285,14 @@ trait InteractsWithCoEdit
         $result = ThreeWayMerge::merge($this->coeditBase, $this->coeditMine(), $theirs);
         $name = $this->coeditTheirName();
 
-        $this->data = [...$this->data, ...Arr::only($result->data, $result->taken)];
+        $this->coeditWrite(Arr::only($result->data, $result->taken));
         // What is in the database now is the base for every field not in conflict,
         // so the save afterwards only reports the fields you changed.
         $this->coeditRebase([...$this->coeditBase, ...Arr::except($theirs, $result->conflicts)]);
         $this->coeditAcknowledge(advanceVersion: false);
 
         if ($result->taken !== []) {
-            ChangesMerged::dispatch($this->getRecord(), auth()->user(), $result->taken, $name);
+            $this->coeditTaken = [...$this->coeditTaken, ...array_fill_keys($result->taken, $name)];
 
             Notification::make()
                 ->title(__('filament-coedit::coedit.taken.title', ['name' => e($name)]))
@@ -301,8 +318,9 @@ trait InteractsWithCoEdit
         if ($this->coeditResolving) {
             // A newer save conflicts while the dialog is submitting: Filament would
             // unmount a dialog replaced by itself, so refill it in place (its fields
-            // come from the conflict list) and stay open.
+            // come from the conflict list) and stay open. The choices just made do not stand.
             $this->getMountedActionSchema()?->fill();
+            $this->coeditSettled = array_diff_key($this->coeditSettled, array_flip($result->conflicts));
 
             throw new Halt;
         }
@@ -337,7 +355,28 @@ trait InteractsWithCoEdit
 
         $this->coeditMerged = false;
 
-        $mine = $this->coeditFields($this->data);
+        // Told once the save is committed: a save that fails or rolls back merged
+        // nothing, and what it would have told waits for the next one.
+        if ($this->coeditTaken !== [] || $this->coeditSettled !== []) {
+            $events = [];
+
+            foreach (array_unique($this->coeditTaken) as $name) {
+                $events[] = new ChangesMerged($this->getRecord(), auth()->user(), array_keys($this->coeditTaken, $name, strict: true), $name);
+            }
+
+            if ($this->coeditSettled !== []) {
+                $events[] = new ConflictResolved($this->getRecord(), auth()->user(), $this->coeditSettled);
+            }
+
+            $this->getRecord()->getConnection()->afterCommit(function () use ($events): void {
+                $this->coeditTaken = [];
+                $this->coeditSettled = [];
+
+                array_map(event(...), $events);
+            });
+        }
+
+        $mine = $this->coeditFields();
 
         // The record as saved, filled through the form: what the save wrote can differ
         // from the form (mutateFormDataBeforeSave(), dehydrateStateUsing()), and the next
@@ -357,7 +396,7 @@ trait InteractsWithCoEdit
 
         // ...and the form, as you left it, still counts as untouched by you.
         foreach ($mine as $field => $value) {
-            if (ThreeWayMerge::normalize($value) !== ThreeWayMerge::normalize($saved[$field] ?? null)) {
+            if (! ThreeWayMerge::untouched($saved[$field] ?? null, $value)) {
                 $this->coeditSaved[$field] = $this->coeditPrint($value);
             }
         }
@@ -426,7 +465,7 @@ trait InteractsWithCoEdit
         try {
             $this->fillForm();
 
-            return $this->coeditFields($this->data ?? []);
+            return $this->coeditFields();
         } finally {
             foreach ($properties as $property) {
                 if (array_key_exists($property->getName(), $page)) {
@@ -446,7 +485,7 @@ trait InteractsWithCoEdit
      */
     protected function coeditMine(): array
     {
-        $mine = $this->coeditFields($this->data);
+        $mine = $this->coeditFields();
 
         foreach ($this->coeditSaved as $field => $print) {
             if (array_key_exists($field, $mine) && hash_equals($print, $this->coeditPrint($mine[$field]))) {
@@ -477,19 +516,32 @@ trait InteractsWithCoEdit
     /** A hash, not the value: the form may hold a password the save stored hashed. */
     protected function coeditPrint(mixed $value): string
     {
-        return hash_hmac('sha256', ThreeWayMerge::normalize($value), (string) config('app.key'));
+        // Exactly, as the form's own values compare; prefixed, so no other HMAC under the app key matches it.
+        return hash_hmac('sha256', 'filament-coedit:print:'.ThreeWayMerge::normalize($value, exact: true), (string) config('app.key'));
     }
 
     /**
-     * Only the values the form edits take part: ids, timestamps, other
-     * attributes the form carries along and ignored fields are not merged.
+     * The form's fields by path. Only the values the form edits take part: ids,
+     * timestamps, other attributes the form carries along and ignored fields are
+     * not merged.
      *
-     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
-    protected function coeditFields(array $data): array
+    protected function coeditFields(): array
     {
-        return FormFields::only($this->form, $data, $this->getCoEditIgnoredFields());
+        return FormFields::only($this->form, $this->data ?? [], $this->getCoEditIgnoredFields());
+    }
+
+    /**
+     * Put values into the form, by path.
+     *
+     * @param  array<string, mixed>  $values
+     */
+    protected function coeditWrite(array $values): void
+    {
+        foreach ($values as $field => $value) {
+            data_set($this->data, $field, $value);
+        }
     }
 
     protected function coeditNotifyDeleted(): void

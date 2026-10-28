@@ -52,7 +52,7 @@ class CoEditAction
         $beforeFormValidated = $hook('beforeFormValidated');
         $save = $hook('action');
 
-        /** @var array<string, array{labels: list<string>, release: Closure(): void}> $merged  per record, this request */
+        /** @var array<string, array{labels: list<string>, events: list<ChangesMerged>, held: ?string, release: Closure(): void}> $merged  per record, this request */
         $merged = [];
 
         $action->afterFormFilled(function (EditAction $action, Model $record) use ($afterFormFilled, $ignore): void {
@@ -61,8 +61,8 @@ class CoEditAction
                     ...$schema->getRawState(),
                     self::STATE_KEY => [
                         'version' => (int) (CoEdit::store()->lastSave(PresenceStore::room($record))['version'] ?? 0),
-                        'base' => self::fingerprints($filled = FormFields::only($schema, $schema->getRawState(), $ignore)),
-                        'exact' => self::fingerprints($filled, exact: true),
+                        'base' => self::pack(self::fingerprints($filled = FormFields::only($schema, $schema->getRawState(), $ignore))),
+                        'exact' => self::pack(self::fingerprints($filled, exact: true)),
                     ],
                 ]);
             }
@@ -92,7 +92,7 @@ class CoEditAction
                 defer($release, 'filament-coedit-save-lock:'.$room, always: true);
 
                 try {
-                    $merged[$room] = ['labels' => self::merge($action, $schema, $record, $ignore), 'release' => $release];
+                    $merged[$room] = [...self::merge($action, $schema, $record, $ignore), 'release' => $release];
                 } catch (Throwable $exception) {
                     $release();
 
@@ -137,6 +137,13 @@ class CoEditAction
             // Announced and unlocked once the update is committed.
             if ($merge) {
                 $record->getConnection()->afterCommit(function () use ($room, $merge): void {
+                    // Told now: what this submit held for a failed save is spent.
+                    if ($merge['held'] !== null) {
+                        CoEdit::store()->take($room, CoEdit::who()['user'], $merge['held']);
+                    }
+
+                    array_map(event(...), $merge['events']);
+
                     if ($merge['labels'] !== []) {
                         CoEdit::store()->recordSave($room, CoEdit::who(), $merge['labels']);
                     }
@@ -176,7 +183,7 @@ class CoEditAction
      * Merge the database into the action's data, or halt once on a conflict.
      *
      * @param  list<string>  $ignore
-     * @return list<string> labels of the fields this save changes
+     * @return array{labels: list<string>, events: list<ChangesMerged>, held: ?string} labels of the fields this save changes, and what it took from the others
      */
     protected static function merge(EditAction $action, Schema $schema, Model $record, array $ignore): array
     {
@@ -187,11 +194,12 @@ class CoEditAction
         if (! is_array($state) || ! is_array($state['base'] ?? null)) {
             self::misconfigured('its form was filled without coEdit()\'s fingerprint. Call afterFormFilled() before coEdit(), not after it.');
 
-            return self::labelsOfChanged($schema, [], $mine);
+            return ['labels' => self::labelsOfChanged($schema, [], $mine), 'events' => [], 'held' => null];
         }
 
-        $base = array_map(fn (mixed $value): string => is_string($value) ? $value : '', $state['base']);
-        $exact = array_map(fn (mixed $value): string => is_string($value) ? $value : '', is_array($state['exact'] ?? null) ? $state['exact'] : []);
+        $names = FormFields::names($schema, $ignore);
+        $base = self::unpack($state['base'], $names);
+        $exact = self::unpack(is_array($state['exact'] ?? null) ? $state['exact'] : [], $names);
         $loaded = $exact;
 
         // Their version, filled through the same form, then the person's own state put back.
@@ -204,6 +212,7 @@ class CoEditAction
         $theirsPrints = self::fingerprints($theirs);
         $theirsExact = self::fingerprints($theirs, exact: true);
         $minePrints = self::fingerprints($mine);
+        $mineExact = self::fingerprints($mine, exact: true);
         $taken = [];
         $conflicts = [];
 
@@ -217,7 +226,12 @@ class CoEditAction
 
             $minePrint = $minePrints[$field] ?? null;
 
-            if ($minePrint === $basePrint) {
+            // As ThreeWayMerge::untouched(): text you typed compares exactly.
+            $untouched = is_string($mine[$field] ?? null)
+                ? $mineExact[$field] === ($exact[$field] ?? self::fingerprint(null, exact: true))
+                : $minePrint === $basePrint;
+
+            if ($untouched) {
                 $taken[] = $field;
             } elseif ($minePrint !== $print) {
                 $conflicts[] = $field;
@@ -225,16 +239,23 @@ class CoEditAction
         }
 
         $name = self::theirName($record, (int) ($state['version'] ?? 0));
+
+        // Kept by a submit that stopped after its merge (a validation error): told with this one.
+        $room = PresenceStore::room($record);
+        $keep = [...self::kept($state, $names, $room), ...array_fill_keys($taken, $name)];
+        $events = array_map(
+            fn (string $from): ChangesMerged => new ChangesMerged($record, auth()->user(), array_keys($keep, $from, strict: true), $from),
+            array_values(array_unique($keep)),
+        );
+
         if ($taken !== []) {
             // Their value into the form before it is read: the update (and a relationship
             // field's own save) writes what is in the database already.
             foreach ($taken as $field) {
-                $raw[$field] = $theirs[$field] ?? null;
+                data_set($raw, $field, $theirs[$field] ?? null);
                 $base[$field] = $theirsPrints[$field];
                 $exact[$field] = $theirsExact[$field];
             }
-
-            ChangesMerged::dispatch($record, auth()->user(), $taken, $name);
 
             Notification::make()
                 ->title(__('filament-coedit::coedit.taken.title', ['name' => e($name)]))
@@ -246,10 +267,10 @@ class CoEditAction
         if ($conflicts === []) {
             // The base moves with the form: a save that stops after this (a validation
             // error, a halting before()) must not see their values as yours next time.
-            $raw[self::STATE_KEY] = [...$state, 'base' => $base, 'exact' => $exact];
+            $raw[self::STATE_KEY] = [...$state, 'base' => self::pack($base), 'exact' => self::pack($exact), 'kept' => $held = self::hold($keep, $room)];
             $schema->rawState($raw);
 
-            return self::labelsOfChanged($schema, $loaded, array_diff_key($mine, array_flip($taken)));
+            return ['labels' => self::labelsOfChanged($schema, $loaded, array_diff_key($mine, array_flip($taken))), 'events' => $events, 'held' => $held];
         }
 
         ConflictDetected::dispatch($record, auth()->user(), $conflicts, $name);
@@ -260,7 +281,8 @@ class CoEditAction
             $exact[$field] = $theirsExact[$field];
         }
 
-        $raw[self::STATE_KEY] = ['version' => (int) (CoEdit::store()->lastSave(PresenceStore::room($record))['version'] ?? 0), 'base' => $base, 'exact' => $exact];
+        $version = (int) (CoEdit::store()->lastSave($room)['version'] ?? 0);
+        $raw[self::STATE_KEY] = ['version' => $version, 'base' => self::pack($base), 'exact' => self::pack($exact), 'kept' => self::hold($keep, $room)];
         $schema->rawState($raw);
 
         $lines = array_map(
@@ -307,6 +329,69 @@ class CoEditAction
         $exception = new LogicException('Co-Edit could not merge this modal edit: '.$reason);
 
         app()->hasDebugModeEnabled() ? throw $exception : report($exception);
+    }
+
+    /**
+     * Kept on the server, the browser only holds a one-time token: the list ends up
+     * in an audit log, so it can be neither made up nor told twice.
+     *
+     * @param  array<string, string>  $kept  field => their name
+     */
+    protected static function hold(array $kept, string $room): ?string
+    {
+        return $kept === [] ? null : CoEdit::store()->hold($room, CoEdit::who()['user'], $kept);
+    }
+
+    /**
+     * What earlier submits of this modal kept from the others, taken once.
+     *
+     * @param  array<mixed>  $state
+     * @param  list<string>  $names
+     * @return array<string, string> field => their name
+     */
+    protected static function kept(array $state, array $names, string $room): array
+    {
+        $token = $state['kept'] ?? null;
+        $kept = is_string($token) ? (CoEdit::store()->take($room, CoEdit::who()['user'], $token) ?? []) : [];
+
+        return array_filter(
+            array_intersect_key($kept, array_flip($names)),
+            fn (mixed $name, int|string $field): bool => is_string($name),
+            ARRAY_FILTER_USE_BOTH,
+        );
+    }
+
+    /**
+     * Fingerprints keyed for the modal's state, where a dot in a field's path would nest it.
+     *
+     * @param  array<string, string>  $prints
+     * @return array<string, string>
+     */
+    protected static function pack(array $prints): array
+    {
+        return array_combine(array_map(FormFields::key(...), array_keys($prints)), $prints);
+    }
+
+    /**
+     * The modal's fingerprints by field path again; anything else the browser put there is dropped.
+     *
+     * @param  array<mixed>  $state
+     * @param  list<string>  $names
+     * @return array<string, string>
+     */
+    protected static function unpack(array $state, array $names): array
+    {
+        $prints = [];
+
+        foreach ($names as $name) {
+            $print = $state[FormFields::key($name)] ?? null;
+
+            if (is_string($print)) {
+                $prints[$name] = $print;
+            }
+        }
+
+        return $prints;
     }
 
     /**

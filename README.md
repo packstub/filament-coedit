@@ -115,9 +115,9 @@ Listen for these to keep an audit trail or notify the person whose change was ke
 
 | Event | When | Payload |
 | --- | --- | --- |
-| `Packstub\CoEdit\Events\ChangesMerged` | A save kept fields only the other person changed | `record`, `user`, `fields`, `theirName` |
+| `Packstub\CoEdit\Events\ChangesMerged` | A save that kept fields only the other person changed is committed | `record`, `user`, `fields`, `theirName` |
 | `Packstub\CoEdit\Events\ConflictDetected` | A save found fields both changed | `record`, `user`, `fields`, `theirName` |
-| `Packstub\CoEdit\Events\ConflictResolved` | The person chose in the dialog | `record`, `user`, `choices` (field => `mine` or `theirs`) |
+| `Packstub\CoEdit\Events\ConflictResolved` | The save the person chose for in the dialog is committed | `record`, `user`, `choices` (field => `mine` or `theirs`) |
 
 ### Your own save()
 
@@ -167,7 +167,7 @@ When you save, Co-Edit reads the record again, fills it through your form and co
 
 ![The conflict dialog](docs/images/conflict.png)
 
-The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T` and the seconds, and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values. Whether someone else changed a field is decided without the number rule, because both versions come from the database: a version field going from `1.1` to `1.10` is their change, and kept. Your own edit is still read through the number rule, so if you retype `1.1` as `1.10` in a text field while someone else saves `2`, your change counts as none, theirs is kept and you're told. Each top-level form field is one unit. A repeater, a key-value field or a JSON column merges as a whole, and so does a layout with its own `statePath()` or a relationship group (`Group::make()->relationship()`): if you both changed something in it, the dialog asks about the group as one value.
+The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T`, the seconds or a zero fraction (one with a zone is compared in the app's time zone), and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values. Text is not read as a number where it can be told apart: both versions from the database compare exactly, so a version field going from `1.1` to `1.10` is their change and kept, and so does text you typed, so retyping `1.1` as `1.10` is your change. Only your `10.5` against their `10.50` is no conflict. Each form field is one unit, by its path: `meta.color` in a section with its own `statePath()` and `category.name` in a relationship group (`Group::make()->relationship()`) merge on their own, and two people changing two fields of one group never meet. A repeater, a builder, a key-value field or a JSON column a single field edits merges as a whole.
 
 The merge only covers fields on the form. Attributes the form doesn't edit, like timestamps, counters or columns a job updates, are never written by the merge and never reported.
 

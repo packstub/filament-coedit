@@ -69,6 +69,8 @@ it('sees through the type noise forms add', function (mixed $a, mixed $b): void 
     ],
     'object key order' => [['a' => 1, 'b' => 2], ['b' => 2, 'a' => 1]],
     'serialised datetime cast and form value' => ['2026-10-21T10:30:00.000000Z', '2026-10-21 10:30:00'],
+    'one instant in two zones' => ['2026-10-21T12:30:00+02:00', '2026-10-21 10:30:00'],
+    'a zero fraction' => ['2026-10-21 10:30:00.000', '2026-10-21 10:30:00'],
     'negative decimal and float' => ['-3.50', -3.5],
     'negative zero' => ['-0.0', 0],
     'a number input without its leading zero' => ['.5', '0.5'],
@@ -80,6 +82,9 @@ it('still tells real differences apart', function (mixed $a, mixed $b): void {
     expect(ThreeWayMerge::normalize($a))->not->toBe(ThreeWayMerge::normalize($b));
 })->with([
     'different numbers' => ['10', '10.5'],
+    'same wall time in two zones' => ['2026-10-21T10:30:00+02:00', '2026-10-21 10:30:00'],
+    'same time, another fraction' => ['2026-10-21 10:30:00.5', '2026-10-21 10:30:00'],
+    'carbon in another zone' => [Carbon::parse('2026-10-21 10:30:00', 'Europe/Chisinau'), '2026-10-21 10:30:00'],
     'texts that start with the same date-time' => ['2026-10-28 10:00 called, no answer', '2026-10-28 10:00 called, nothing. Wrote back.'],
     'a phone number and the same digits' => ['+40123', '40123'],
     'a number with a space' => ['12 ', '12'],
@@ -131,6 +136,22 @@ it('still sees the same number typed two ways on both sides as no conflict', fun
     expect($result->conflicts)->toBe([])->and($result->taken)->toBe([])->and($result->data['price'])->toBe('10.5');
 });
 
+it('counts text you retyped as your change, even when it reads as the same number', function (): void {
+    $result = ThreeWayMerge::merge(['version' => '1.1'], ['version' => '1.10'], ['version' => '2']);
+
+    expect($result->conflicts)->toBe(['version'])->and($result->taken)->toBe([]);
+});
+
+it('still reads values the browser did not type through the form noise', function (mixed $base, mixed $mine): void {
+    expect(ThreeWayMerge::untouched($base, $mine))->toBeTrue();
+})->with([
+    'integer refilled as text' => [12, '12'],
+    'cleared text' => [null, ''],
+    'decimal kept as a number' => ['10.00', 10],
+    'toggle' => [true, '1'],
+    'date-time without seconds' => ['2026-10-28 10:00:00', '2026-10-28T10:00'],
+]);
+
 it('keeps the form noise rules in exact comparisons, except for numbers in text', function (): void {
     expect(ThreeWayMerge::normalize(['0f8fad5b-d9cb-469f-a165-70867728950e' => 'a'], exact: true))
         ->toBe(ThreeWayMerge::normalize(['7c9e6679-7425-40de-944b-e07fc1f90ae7' => 'a'], exact: true))
@@ -138,3 +159,8 @@ it('keeps the form noise rules in exact comparisons, except for numbers in text'
         ->and(ThreeWayMerge::normalize(12, exact: true))->toBe(ThreeWayMerge::normalize('12', exact: true))
         ->and(ThreeWayMerge::normalize('1.10', exact: true))->not->toBe(ThreeWayMerge::normalize('1.1', exact: true));
 });
+
+it('compares text that only looks like a zoned date-time as text', function (string $text): void {
+    expect(ThreeWayMerge::normalize($text))->toBe(json_encode($text))
+        ->and(ThreeWayMerge::changed(['note' => $text], ['note' => $text.'!'], exact: true))->toBe(['note']);
+})->with(['2026-13-01T10:30Z', '2026-10-28T25:30Z', '2026-10-28 99:99+02:00']);

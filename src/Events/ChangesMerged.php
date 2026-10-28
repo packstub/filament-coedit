@@ -7,14 +7,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
- * Dispatched while a save is being merged: fields only the other person changed were kept as they saved them.
+ * Dispatched once a merged save is committed: fields only the other person changed were kept as they saved them.
  */
 class ChangesMerged
 {
     use Dispatchable;
 
     /**
-     * @param  list<string>  $fields  top-level form field names
+     * @param  list<string>  $fields  form field paths (`title`, `meta.color` in a section with its own state path)
      * @param  string|null  $theirName  who saved last, when Co-Edit knows
      */
     public function __construct(

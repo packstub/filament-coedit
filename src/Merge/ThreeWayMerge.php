@@ -3,10 +3,12 @@
 namespace Packstub\CoEdit\Merge;
 
 use BackedEnum;
+use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Str;
 use JsonSerializable;
 use Stringable;
+use Throwable;
 use UnitEnum;
 
 /**
@@ -37,22 +39,30 @@ class ThreeWayMerge
                 continue;
             }
 
-            // Yours comes from the browser, so it compares through the form noise.
-            $m = self::normalize($mine[$field] ?? null);
-
-            if ($m === self::normalize($base[$field] ?? null)) {
+            if (self::untouched($base[$field] ?? null, $mine[$field] ?? null)) {
                 $merged[$field] = $theirs[$field] ?? null;
                 $taken[] = $field;
 
                 continue;
             }
 
-            if ($m !== self::normalize($theirs[$field] ?? null)) {
+            if (self::normalize($mine[$field] ?? null) !== self::normalize($theirs[$field] ?? null)) {
                 $conflicts[] = $field;
             }
         }
 
         return new MergeResult($merged, $taken, $conflicts);
+    }
+
+    /**
+     * Whether the form still holds the base. Yours comes from the browser, so it
+     * compares through the form noise, except text: an input sends what was typed,
+     * so retyping "1.1" as "1.10" is your change, while "12" in an input the record
+     * filled with 12 is not.
+     */
+    public static function untouched(mixed $base, mixed $mine): bool
+    {
+        return self::normalize($base, exact: is_string($mine)) === self::normalize($mine, exact: is_string($mine));
     }
 
     /**
@@ -101,7 +111,7 @@ class ThreeWayMerge
         }
 
         if ($value instanceof DateTimeInterface) {
-            return $value->format('Y-m-d H:i:s');
+            return self::dateTime(CarbonImmutable::instance($value));
         }
 
         if ($value instanceof JsonSerializable) {
@@ -134,7 +144,20 @@ class ThreeWayMerge
             // A whole date-time, with or without the T, seconds, fraction and zone
             // (as Laravel serialises a cast); a text that merely starts with one is text.
             if (preg_match('/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/', $value, $match)) {
-                return $match[1].' '.$match[2].(($match[3] ?? '') !== '' ? $match[3] : ':00');
+                $fraction = rtrim(substr($match[4] ?? '', 1), '0');
+                $local = $match[1].' '.$match[2].(($match[3] ?? '') !== '' ? $match[3] : ':00').($fraction !== '' ? '.'.$fraction : '');
+
+                // A zone moves it into the app's time, which a form's own value is in.
+                if (($match[5] ?? '') === '') {
+                    return $local;
+                }
+
+                // Digits that make no date-time ("2026-13-01T10:30Z") stay text.
+                try {
+                    return self::dateTime(CarbonImmutable::parse($value));
+                } catch (Throwable) {
+                    return $value;
+                }
             }
 
             return $value;
@@ -158,6 +181,15 @@ class ThreeWayMerge
         }
 
         return $value;
+    }
+
+    /** In the app's time zone, seconds always, a fraction only when there is one. */
+    protected static function dateTime(CarbonImmutable $value): string
+    {
+        $value = $value->setTimezone((string) config('app.timezone', 'UTC'));
+        $fraction = rtrim($value->format('u'), '0');
+
+        return $value->format('Y-m-d H:i:s').($fraction !== '' ? '.'.$fraction : '');
     }
 
     protected static function number(int|float $value): string

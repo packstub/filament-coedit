@@ -25,19 +25,73 @@ use UnitEnum;
 class FormFields
 {
     /**
-     * Top-level field names: `meta.color` and `meta.size` are both `meta`.
+     * The fields a merge compares, by path in the form's data: `meta.color` in a
+     * section with its own state path is a field of its own, as is `category.name`
+     * in a relationship group. The fields inside a repeater or builder item belong
+     * to it (`tags`). An ignored path leaves out everything under it too.
      *
      * @param  list<string>  $ignore
      * @return list<string>
      */
     public static function names(Schema $schema, array $ignore = []): array
     {
-        $names = array_map(
-            fn (Field $field): string => Str::before(self::path($schema, $field), '.'),
+        $paths = array_unique(array_map(
+            fn (Field $field): string => self::path($schema, $field),
             array_values($schema->getFlatFields(withHidden: true)),
-        );
+        ));
 
-        return array_values(array_diff(array_unique($names), $ignore));
+        $all = array_flip($paths);
+        $ignored = array_flip($ignore);
+
+        // A path is left out when one of its parents is a field (a repeater item's) or ignored.
+        $covered = function (string $path, array $set, bool $orSelf): bool {
+            $prefix = '';
+
+            foreach (explode('.', $path) as $i => $segment) {
+                $prefix = $i === 0 ? $segment : "{$prefix}.{$segment}";
+
+                if (isset($set[$prefix]) && ($orSelf || $prefix !== $path)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
+        return array_values(array_filter(
+            $paths,
+            fn (string $path): bool => ! $covered($path, $all, orSelf: false) && ! $covered($path, $ignored, orSelf: true),
+        ));
+    }
+
+    /**
+     * A field's key in a schema's state, the dialog's or a modal's fingerprints:
+     * a dot there would nest it.
+     */
+    public static function key(string $name): string
+    {
+        // Reversible, so `a.b` and `a_b` never share a key.
+        return strtr($name, ['_' => '_u', '.' => '_d']);
+    }
+
+    /**
+     * Each field's value in the form's data, by path.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  list<string>  $ignore
+     * @return array<string, mixed>
+     */
+    public static function only(Schema $schema, array $data, array $ignore = []): array
+    {
+        $values = [];
+
+        foreach (self::names($schema, $ignore) as $name) {
+            if (Arr::has($data, $name)) {
+                $values[$name] = Arr::get($data, $name);
+            }
+        }
+
+        return $values;
     }
 
     /**
@@ -51,16 +105,6 @@ class FormFields
         $path = $field->getStatePath();
 
         return filled($root) && str_starts_with($path, $root.'.') ? substr($path, strlen($root) + 1) : $field->getStatePath(isAbsolute: false);
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     * @param  list<string>  $ignore
-     * @return array<string, mixed>
-     */
-    public static function only(Schema $schema, array $data, array $ignore = []): array
-    {
-        return Arr::only($data, self::names($schema, $ignore));
     }
 
     public static function find(Schema $schema, string $name): ?Field
