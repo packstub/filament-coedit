@@ -243,6 +243,9 @@ class CoEditAction
         }
 
         if ($conflicts === []) {
+            // The base moves with the form: a save that stops after this (a validation
+            // error, a halting before()) must not see their values as yours next time.
+            $raw[self::STATE_KEY] = [...$state, 'base' => $base, 'exact' => $exact];
             $schema->rawState($raw);
 
             return self::labelsOfChanged($schema, $loaded, array_diff_key($mine, array_flip($taken)));

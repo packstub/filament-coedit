@@ -50,7 +50,8 @@ First release.
 - Merging fills their version through your page and then restores every public property of the page, not only the form: a `fillForm()` that resets page state (Filament's Translatable concern resets the active locale) no longer makes the save write your edit to the wrong locale.
 - `before()` and `after()` chained after `coEdit()` no longer turn the modal merge off: the merge runs before the form is validated (relationship fields save as it is read) and the save checks that it ran. An `afterFormFilled()`, `beforeFormValidated()` or `action()` set after `coEdit()` fails loudly (reported in production) instead of saving without a merge; an `action()` given as a method name and the modal's `$schema` reach the save as before.
 - Fields that take their path from a layout (a section with its own `statePath()`) or a relationship group (`Group::make()->relationship()`) take part in the merge, on edit pages and in modals; they were left out and could be overwritten.
-- A save started from another action (a header "Save and publish", with or without a confirmation) opens the conflict dialog instead of stopping without a word.
+- A save started from another action (a header "Save and publish", with or without a confirmation) opens the conflict dialog instead of stopping without a word, and stops that action, so what it does after the save does not run.
+- A modal submit that merged and then stopped (a validation error, a halting `before()`) keeps their values as theirs: the next submit no longer reports a false conflict or writes them back over a newer save.
 - The presence component's key no longer carries a hash of the raw room.
 - "Deleted this record" no longer guesses who deleted it.
 - `PresenceColumn` leaves rows that are not Eloquent models empty instead of failing.

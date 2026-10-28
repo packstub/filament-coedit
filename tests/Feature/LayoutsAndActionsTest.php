@@ -109,3 +109,14 @@ it('says the record is gone without guessing who deleted it', function (): void 
 
     expect(Article::query()->count())->toBe(0);
 });
+
+it('runs nothing after the save in a header action that stops at a conflict', function (): void {
+    $ion = nestedPageAs($this->ion, $this->article);
+
+    nestedPageAs($this->ana, $this->article)->fillForm(['title' => 'Spring sale'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn'])->callAction('saveAndPublish')->assertActionMounted('coeditResolve');
+
+    expect($this->article->fresh())->title->toBe('Spring sale')->status->toBe('draft');
+});

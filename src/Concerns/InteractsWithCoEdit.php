@@ -293,13 +293,18 @@ trait InteractsWithCoEdit
             throw new Halt;
         }
 
-        // Started from another action (a header "Save and publish"): replace it, as
-        // Filament unmounts an action once it is done, and the dialog with it.
-        $this->mountedActions === []
-            ? $this->mountAction('coeditResolve')
-            : $this->replaceMountedAction('coeditResolve');
+        if ($this->mountedActions === []) {
+            $this->mountAction('coeditResolve');
 
-        return false;
+            return false;
+        }
+
+        // Started from another action (a header "Save and publish"): replace it, as
+        // Filament unmounts an action once it is done, and the dialog with it; and stop
+        // that action, so nothing it does after the save runs on a save that did not.
+        $this->replaceMountedAction('coeditResolve');
+
+        throw new Halt;
     }
 
     /**

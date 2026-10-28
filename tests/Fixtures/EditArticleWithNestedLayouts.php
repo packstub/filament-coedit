@@ -24,6 +24,11 @@ class EditArticleWithNestedLayouts extends EditRecord
         return [
             Action::make('saveFromHeader')->action(fn () => $this->save()),
             Action::make('saveConfirmed')->requiresConfirmation()->action(fn () => $this->save()),
+            Action::make('saveAndPublish')->action(function (): void {
+                $this->save();
+
+                $this->getRecord()->update(['status' => 'published']);
+            }),
             // The race a deleted record is: gone between loading the page and merging.
             Action::make('saveAfterSomeoneDeletes')->action(function (): void {
                 Article::query()->whereKey($this->getRecord()->getKey())->delete();

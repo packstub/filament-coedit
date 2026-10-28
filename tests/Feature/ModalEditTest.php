@@ -271,3 +271,21 @@ it('merges without the avatars when presence is off', function (): void {
 
     expect($this->article->fresh())->title->toBe('Autumn launch')->status->toBe('review');
 });
+
+it('never mistakes values a stopped submit merged in for yours', function (): void {
+    $ion = openModalAs($this->ion, $this->article);
+
+    anaSavesInModal($this->article, ['status' => 'review']);
+
+    // Merged, then stopped by validation: her "review" is in his form now.
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->callMountedAction()->assertHasFormErrors(['title' => 'required']);
+    app(DeferredCallbackCollection::class)->invoke();
+
+    anaSavesInModal($this->article, ['status' => 'published']);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn launch'])->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh())->title->toBe('Autumn launch')->status->toBe('published');
+});
