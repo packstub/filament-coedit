@@ -183,6 +183,16 @@ class FormFields
             return $node['text'];
         }
 
+        if (($node['type'] ?? null) === 'hardBreak') {
+            return ' ';
+        }
+
+        if (($node['type'] ?? null) === 'mention') {
+            $label = $node['attrs']['label'] ?? $node['attrs']['id'] ?? null;
+
+            return is_scalar($label) ? '@'.$label : '';
+        }
+
         $children = array_values(array_filter((array) ($node['content'] ?? []), is_array(...)));
         $parts = array_map(self::richText(...), $children);
 

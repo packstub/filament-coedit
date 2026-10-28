@@ -163,8 +163,8 @@ it('shows a rich document as its text in the dialog', function (): void {
     $form = ionOpens($this->article)->instance()->form;
     $doc = ['type' => 'doc', 'content' => [
         ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Hel'], ['type' => 'text', 'text' => 'lo', 'marks' => [['type' => 'bold']]], ['type' => 'text', 'text' => ' world']]],
-        ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Bye']]],
+        ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Bye'], ['type' => 'hardBreak'], ['type' => 'mention', 'attrs' => ['id' => 3, 'label' => 'Ana']]]],
     ]];
 
-    expect(FormFields::display($form, 'title', $doc))->toBe('Hello world Bye');
+    expect(FormFields::display($form, 'title', $doc))->toBe('Hello world Bye @Ana');
 });
