@@ -40,12 +40,27 @@ class FormFields
             array_values($schema->getFlatFields(withHidden: true)),
         ));
 
-        $inside = fn (string $path, string $parent): bool => $path === $parent || str_starts_with($path, $parent.'.');
+        $all = array_flip($paths);
+        $ignored = array_flip($ignore);
+
+        // A path is left out when one of its parents is a field (a repeater item's) or ignored.
+        $covered = function (string $path, array $set, bool $orSelf): bool {
+            $prefix = '';
+
+            foreach (explode('.', $path) as $i => $segment) {
+                $prefix = $i === 0 ? $segment : "{$prefix}.{$segment}";
+
+                if (isset($set[$prefix]) && ($orSelf || $prefix !== $path)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
 
         return array_values(array_filter(
             $paths,
-            fn (string $path): bool => ! collect($paths)->contains(fn (string $other): bool => $other !== $path && $inside($path, $other))
-                && ! collect($ignore)->contains(fn (string $ignored): bool => $inside($path, $ignored)),
+            fn (string $path): bool => ! $covered($path, $all, orSelf: false) && ! $covered($path, $ignored, orSelf: true),
         ));
     }
 
@@ -55,7 +70,8 @@ class FormFields
      */
     public static function key(string $name): string
     {
-        return str_replace('.', '__', $name);
+        // Reversible, so `a.b` and `a_b` never share a key.
+        return strtr($name, ['_' => '_u', '.' => '_d']);
     }
 
     /**

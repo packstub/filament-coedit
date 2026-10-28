@@ -531,3 +531,17 @@ it('asks when you retyped a title as the same-looking number and a colleague cha
 
     expect($this->article->fresh()->title)->toBe('1.10');
 });
+
+it('keeps a colleague\'s later edit to a number you typed in another form and saved', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+    $ion->fillForm(['price' => '10.50'])->call('save')->assertHasNoFormErrors();
+
+    $this->actingAs($this->ana);
+    livewire(EditArticle::class, ['record' => $this->article->getKey()])->fillForm(['price' => '12'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Autumn'])->call('save')->assertHasNoFormErrors()->assertActionNotMounted('coeditResolve');
+
+    expect($this->article->fresh())->title->toBe('Autumn')->price->toBe('12.00');
+});

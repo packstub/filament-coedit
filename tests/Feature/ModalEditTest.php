@@ -162,6 +162,29 @@ it('never tells kept fields the browser made up', function (): void {
     Event::assertNotDispatched(ChangesMerged::class);
 });
 
+it('never tells a kept list replayed from another record', function (): void {
+    Event::fake([ChangesMerged::class]);
+    $other = article(['title' => 'Winter launch']);
+
+    $ion = openModalAs($this->ion, $this->article);
+    anaSavesInModal($this->article, ['price' => 50]);
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->callMountedAction()->assertHasFormErrors(['title']);
+    app(DeferredCallbackCollection::class)->invoke();
+
+    $kept = $ion->instance()->mountedActions[0]['data'][CoEditAction::STATE_KEY]['kept'];
+    expect($kept['fields'])->toBe([['price', 'Ana']]);
+
+    $this->actingAs($this->ion);
+    openModalAs($this->ion, $other)
+        ->fillForm([CoEditAction::STATE_KEY.'.kept' => $kept, 'title' => 'Winter sale'])
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Event::assertNotDispatched(ChangesMerged::class);
+});
+
 it('leaves ignored fields to plain Filament in the modal', function (): void {
     $ion = openModalAs($this->ion, $this->article);
 

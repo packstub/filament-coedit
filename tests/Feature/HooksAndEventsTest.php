@@ -7,6 +7,7 @@ use Packstub\CoEdit\Events\ChangesMerged;
 use Packstub\CoEdit\Events\ConflictDetected;
 use Packstub\CoEdit\Events\ConflictResolved;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
+use Packstub\CoEdit\Tests\Fixtures\EditArticleHaltingOnce;
 use Packstub\CoEdit\Tests\Fixtures\EditArticleIgnoringViews;
 
 use function Pest\Livewire\livewire;
@@ -118,6 +119,49 @@ it('dispatches ConflictResolved only for the save that went through', function (
     Event::assertDispatchedTimes(ConflictResolved::class, 1);
     Event::assertDispatched(ConflictResolved::class, fn (ConflictResolved $event): bool => $event->choices === ['title' => 'theirs']);
     expect($this->article->fresh()->title)->toBe('Ana again');
+});
+
+it('tells ConflictResolved and the kept fields with the next save when the dialog\'s save stopped', function (): void {
+    Event::fake([ConflictResolved::class, ChangesMerged::class]);
+
+    $ion = openAs($this->ion, $this->article, EditArticleHaltingOnce::class);
+    openAs($this->ana, $this->article)->fillForm(['title' => 'Ana', 'status' => 'review'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'Ion'])->call('save')->assertActionMounted('coeditResolve');
+
+    EditArticleHaltingOnce::$halt = true;
+    $ion->setActionData(['choices' => ['title' => 'mine']])->callMountedAction();
+
+    Event::assertNothingDispatched();
+    expect($this->article->fresh()->title)->toBe('Ana');
+
+    $ion->call('save')->assertHasNoFormErrors();
+
+    Event::assertDispatchedTimes(ConflictResolved::class, 1);
+    Event::assertDispatched(ConflictResolved::class, fn (ConflictResolved $event): bool => $event->choices === ['title' => 'mine']);
+    Event::assertDispatched(ChangesMerged::class, fn (ChangesMerged $event): bool => $event->fields === ['status']);
+    expect($this->article->fresh())->title->toBe('Ion')->status->toBe('review');
+});
+
+it('credits each kept field to whoever saved it', function (): void {
+    Event::fake([ChangesMerged::class]);
+    $mihai = user('Mihai');
+
+    $ion = openAs($this->ion, $this->article);
+    openAs($this->ana, $this->article)->fillForm(['status' => 'review'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => ''])->call('save')->assertHasFormErrors(['title']);
+
+    openAs($mihai, $this->article)->fillForm(['price' => 30])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['title' => 'X'])->call('save')->assertHasNoFormErrors();
+
+    Event::assertDispatchedTimes(ChangesMerged::class, 2);
+    Event::assertDispatched(ChangesMerged::class, fn (ChangesMerged $event): bool => $event->fields === ['status'] && $event->theirName === 'Ana');
+    Event::assertDispatched(ChangesMerged::class, fn (ChangesMerged $event): bool => $event->fields === ['price'] && $event->theirName === 'Mihai');
 });
 
 it('dispatches nothing when nobody else saved', function (): void {

@@ -81,16 +81,22 @@ trait InteractsWithCoEdit
     protected bool $coeditMerged = false;
 
     /**
-     * Fields merges took from the others since the last save, and from whom: told
-     * once a save is committed, also when the first save after the merge failed.
+     * Fields merges took from the others since the last committed save, and whose
+     * they were: told once a save is committed, also when the first save after the
+     * merge failed or rolled back.
      *
-     * @var array{fields?: list<string>, name?: string}
+     * @var array<string, string> field => their name
      */
     #[Locked]
     public array $coeditTaken = [];
 
-    /** Kept for once the save is committed: what the dialog settled. */
-    protected ?ConflictResolved $coeditResolvedEvent = null;
+    /**
+     * What the dialog settled, told once a save with it is committed.
+     *
+     * @var array<string, 'mine'|'theirs'>
+     */
+    #[Locked]
+    public array $coeditSettled = [];
 
     /** Set once the page has mounted, so a mount hook called again from the browser does nothing. */
     #[Locked]
@@ -156,7 +162,6 @@ trait InteractsWithCoEdit
                 ->send();
         } finally {
             $this->coeditMerged = false;
-            $this->coeditResolvedEvent = null;
         }
     }
 
@@ -249,7 +254,7 @@ trait InteractsWithCoEdit
         $this->coeditTheirs = [];
         $this->coeditConflicts = [];
 
-        $this->coeditResolvedEvent = new ConflictResolved($this->getRecord(), auth()->user(), $settled);
+        $this->coeditSettled = [...$this->coeditSettled, ...$settled];
 
         $this->coeditResolving = true;
 
@@ -287,7 +292,7 @@ trait InteractsWithCoEdit
         $this->coeditAcknowledge(advanceVersion: false);
 
         if ($result->taken !== []) {
-            $this->coeditTaken = ['fields' => array_values(array_unique([...$this->coeditTaken['fields'] ?? [], ...$result->taken])), 'name' => $name];
+            $this->coeditTaken = [...$this->coeditTaken, ...array_fill_keys($result->taken, $name)];
 
             Notification::make()
                 ->title(__('filament-coedit::coedit.taken.title', ['name' => e($name)]))
@@ -313,8 +318,9 @@ trait InteractsWithCoEdit
         if ($this->coeditResolving) {
             // A newer save conflicts while the dialog is submitting: Filament would
             // unmount a dialog replaced by itself, so refill it in place (its fields
-            // come from the conflict list) and stay open.
+            // come from the conflict list) and stay open. The choices just made do not stand.
             $this->getMountedActionSchema()?->fill();
+            $this->coeditSettled = array_diff_key($this->coeditSettled, array_flip($result->conflicts));
 
             throw new Halt;
         }
@@ -349,16 +355,25 @@ trait InteractsWithCoEdit
 
         $this->coeditMerged = false;
 
-        // Told once the save is committed: a save that fails or rolls back merged nothing.
-        $events = array_filter([
-            ($this->coeditTaken['fields'] ?? []) !== [] ? new ChangesMerged($this->getRecord(), auth()->user(), $this->coeditTaken['fields'], $this->coeditTaken['name'] ?? null) : null,
-            $this->coeditResolvedEvent,
-        ]);
-        $this->coeditTaken = [];
-        $this->coeditResolvedEvent = null;
+        // Told once the save is committed: a save that fails or rolls back merged
+        // nothing, and what it would have told waits for the next one.
+        if ($this->coeditTaken !== [] || $this->coeditSettled !== []) {
+            $events = [];
 
-        if ($events !== []) {
-            $this->getRecord()->getConnection()->afterCommit(fn () => array_map(event(...), $events));
+            foreach (array_unique($this->coeditTaken) as $name) {
+                $events[] = new ChangesMerged($this->getRecord(), auth()->user(), array_keys($this->coeditTaken, $name, strict: true), $name);
+            }
+
+            if ($this->coeditSettled !== []) {
+                $events[] = new ConflictResolved($this->getRecord(), auth()->user(), $this->coeditSettled);
+            }
+
+            $this->getRecord()->getConnection()->afterCommit(function () use ($events): void {
+                $this->coeditTaken = [];
+                $this->coeditSettled = [];
+
+                array_map(event(...), $events);
+            });
         }
 
         $mine = $this->coeditFields();
@@ -381,7 +396,7 @@ trait InteractsWithCoEdit
 
         // ...and the form, as you left it, still counts as untouched by you.
         foreach ($mine as $field => $value) {
-            if (ThreeWayMerge::normalize($value) !== ThreeWayMerge::normalize($saved[$field] ?? null)) {
+            if (! ThreeWayMerge::untouched($saved[$field] ?? null, $value)) {
                 $this->coeditSaved[$field] = $this->coeditPrint($value);
             }
         }
@@ -501,7 +516,8 @@ trait InteractsWithCoEdit
     /** A hash, not the value: the form may hold a password the save stored hashed. */
     protected function coeditPrint(mixed $value): string
     {
-        return hash_hmac('sha256', ThreeWayMerge::normalize($value), (string) config('app.key'));
+        // Exactly, as the form's own values compare; prefixed, so no other HMAC under the app key matches it.
+        return hash_hmac('sha256', 'filament-coedit:print:'.ThreeWayMerge::normalize($value, exact: true), (string) config('app.key'));
     }
 
     /**

@@ -159,3 +159,8 @@ it('keeps the form noise rules in exact comparisons, except for numbers in text'
         ->and(ThreeWayMerge::normalize(12, exact: true))->toBe(ThreeWayMerge::normalize('12', exact: true))
         ->and(ThreeWayMerge::normalize('1.10', exact: true))->not->toBe(ThreeWayMerge::normalize('1.1', exact: true));
 });
+
+it('compares text that only looks like a zoned date-time as text', function (string $text): void {
+    expect(ThreeWayMerge::normalize($text))->toBe(json_encode($text))
+        ->and(ThreeWayMerge::changed(['note' => $text], ['note' => $text.'!'], exact: true))->toBe(['note']);
+})->with(['2026-13-01T10:30Z', '2026-10-28T25:30Z', '2026-10-28 99:99+02:00']);

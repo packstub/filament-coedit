@@ -8,6 +8,7 @@ use DateTimeInterface;
 use Illuminate\Support\Str;
 use JsonSerializable;
 use Stringable;
+use Throwable;
 use UnitEnum;
 
 /**
@@ -147,7 +148,16 @@ class ThreeWayMerge
                 $local = $match[1].' '.$match[2].(($match[3] ?? '') !== '' ? $match[3] : ':00').($fraction !== '' ? '.'.$fraction : '');
 
                 // A zone moves it into the app's time, which a form's own value is in.
-                return ($match[5] ?? '') === '' ? $local : self::dateTime(CarbonImmutable::parse($value));
+                if (($match[5] ?? '') === '') {
+                    return $local;
+                }
+
+                // Digits that make no date-time ("2026-13-01T10:30Z") stay text.
+                try {
+                    return self::dateTime(CarbonImmutable::parse($value));
+                } catch (Throwable) {
+                    return $value;
+                }
             }
 
             return $value;

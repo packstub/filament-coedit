@@ -53,7 +53,7 @@ it('asks about a field in a layout both changed', function (): void {
 
     expect($ion->instance()->coeditConflicts)->toBe(['meta.color']);
 
-    $ion->setActionData(['choices' => ['meta__color' => 'theirs']])->callMountedAction()->assertHasNoFormErrors();
+    $ion->setActionData(['choices' => [FormFields::key('meta.color') => 'theirs']])->callMountedAction()->assertHasNoFormErrors();
 
     expect($this->article->fresh()->meta)->toBe(['color' => 'red', 'size' => null]);
 });
