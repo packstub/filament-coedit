@@ -68,9 +68,8 @@ it('numbers the saves of a record', function (): void {
     $first = $this->store->recordSave('article:1', who('1', 'Ana'), ['Title']);
     $second = $this->store->recordSave('article:1', who('2', 'Ion'), ['Status', 'Price']);
 
-    expect($first['version'])->toBe(1)
-        ->and($second['version'])->toBe(2)
-        ->and($this->store->lastSave('article:1'))->toMatchArray(['version' => 2, 'name' => 'Ion', 'fields' => ['Status', 'Price']])
+    expect($second['version'])->toBeGreaterThan($first['version'])
+        ->and($this->store->lastSave('article:1'))->toMatchArray(['version' => $second['version'], 'name' => 'Ion', 'fields' => ['Status', 'Price']])
         ->and($this->store->lastSave('article:2'))->toBeNull();
 });
 
@@ -92,4 +91,26 @@ it('lets one save of a record run at a time', function (): void {
     $release();
 
     expect($this->store->whileSaving('article:1', fn () => 'saved', wait: 0))->toBe('saved');
+});
+
+it('keeps numbering saves upwards after the last one is forgotten', function (): void {
+    $first = $this->store->recordSave('article:1', who('1', 'Ana'), ['Title']);
+
+    $this->travel(config('filament-coedit.remember_saves_for') + 60)->seconds();
+
+    expect($this->store->lastSave('article:1'))->toBeNull()
+        ->and($this->store->recordSave('article:1', who('1', 'Ana'), ['Title'])['version'])->toBeGreaterThan($first['version']);
+});
+
+it('never lets the timeout fall below two heartbeats', function (): void {
+    config(['filament-coedit.heartbeat' => 10, 'filament-coedit.timeout' => 5]);
+
+    $this->store->touch('article:1', 'tab-a', who('1', 'Ana'), 'editing');
+    $this->travel(15)->seconds();
+
+    expect($this->store->members('article:1'))->toHaveCount(1);
+
+    $this->travel(10)->seconds();
+
+    expect($this->store->members('article:1'))->toBe([]);
 });

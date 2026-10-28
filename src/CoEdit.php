@@ -23,7 +23,8 @@ class CoEdit
         }
 
         return [
-            'user' => (string) $user->getAuthIdentifier(),
+            // The model type too: admin #1 and customer #1 of two panels are two people.
+            'user' => $user->getMorphClass().':'.$user->getAuthIdentifier(),
             'name' => Filament::getUserName($user),
             'avatar' => Filament::getUserAvatarUrl($user),
         ];

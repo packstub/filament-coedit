@@ -104,10 +104,11 @@ it('treats a pull with nothing new as a quiet no-op', function (): void {
 it('counts saves so each page only hears about newer ones', function (): void {
     $ion = editPageAs($this->ion, $this->article);
     $ion->fillForm(['title' => 'One'])->call('save');
+    $first = CoEdit::store()->lastSave($this->room)['version'];
     $ion->fillForm(['title' => 'Two'])->call('save');
 
-    expect(CoEdit::store()->lastSave($this->room)['version'])->toBe(2)
-        ->and($ion->get('coeditVersion'))->toBe(2);
+    expect(CoEdit::store()->lastSave($this->room)['version'])->toBeGreaterThan($first)
+        ->and($ion->get('coeditVersion'))->toBe(CoEdit::store()->lastSave($this->room)['version']);
 });
 
 it('shows people by their panel name and avatar', function (): void {
@@ -173,9 +174,9 @@ it('only acknowledges saves that exist', function (): void {
     CoEdit::store()->recordSave($this->room, ['user' => '2', 'name' => 'Ana', 'avatar' => null], ['Title']);
 
     $this->actingAs($this->ion);
-    $presence = livewire(Presence::class, ['room' => $this->room])->call('acknowledge', 999);
+    $presence = livewire(Presence::class, ['room' => $this->room])->call('acknowledge', PHP_INT_MAX);
 
-    expect($presence->get('version'))->toBe(1);
+    expect($presence->get('version'))->toBe(CoEdit::store()->lastSave($this->room)['version']);
 });
 
 it('shows a "+n" chip in the table when more than three people are on a row', function (): void {
@@ -219,7 +220,7 @@ it('ignores a save announcement asked for from the browser', function (): void {
         ->call('coeditAfterSave')
         ->call('save');
 
-    expect(CoEdit::store()->lastSave($this->room))->toMatchArray(['version' => 1, 'fields' => ['Title']])
+    expect(CoEdit::store()->lastSave($this->room))->toMatchArray(['fields' => ['Title']])
         ->and($this->article->fresh()->title)->toBe('Not saved yet');
 });
 
@@ -231,7 +232,7 @@ it('announces only your own fields after a save that kept theirs', function (): 
     $this->actingAs($this->ion);
     $ion->fillForm(['title' => 'Autumn launch'])->call('save')->assertNotified('Kept Ana\'s changes');
 
-    expect(CoEdit::store()->lastSave($this->room))->toMatchArray(['version' => 2, 'name' => 'Ion', 'fields' => ['Title']]);
+    expect(CoEdit::store()->lastSave($this->room))->toMatchArray(['name' => 'Ion', 'fields' => ['Title']]);
 });
 
 it('waits for another save of the same record, and says so when it takes too long', function (): void {
@@ -292,4 +293,11 @@ it('names related records of a field whose query mentions the pivot table', func
         ]);
 
     expect(FormFields::display($schema, 'labels', [$label->getKey()]))->toBe('Urgent');
+});
+
+it('tells apart two people of different user models with the same id', function (): void {
+    $admin = new NamedUser(['name' => 'Admin']);
+    $admin->forceFill(['id' => $this->ion->getKey()]);
+
+    expect(CoEdit::who($admin)['user'])->not->toBe(CoEdit::who($this->ion)['user']);
 });

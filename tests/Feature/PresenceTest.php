@@ -92,9 +92,9 @@ it('tells the others who saved and what changed, until they acknowledge it', fun
 
     $this->actingAs($this->ion);
     expect($ionPresence->instance()->snapshot()['save'])
-        ->toMatchArray(['version' => 1, 'name' => 'Ana', 'fields' => ['Status', 'Price']]);
+        ->toMatchArray(['name' => 'Ana', 'fields' => ['Status', 'Price']]);
 
-    $ionPresence->call('acknowledge', 1);
+    $ionPresence->call('acknowledge', CoEdit::store()->lastSave($this->room)['version']);
 
     expect($ionPresence->instance()->snapshot()['save'])->toBeNull();
 });

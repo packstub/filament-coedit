@@ -129,7 +129,9 @@ class PresenceStore
 
         return $this->locked($key, function () use ($key, $who, $fields): array {
             $save = [
-                'version' => (int) ($this->cache()->get($key)['version'] ?? 0) + 1,
+                // A clock, not a counter: when the entry expires the next save still
+                // numbers above every version an open page has already seen.
+                'version' => max((int) ($this->cache()->get($key)['version'] ?? 0) + 1, (int) now()->getTimestampMs()),
                 'user' => $who['user'],
                 'name' => $who['name'],
                 'at' => $this->now(),
@@ -296,7 +298,8 @@ class PresenceStore
 
     protected function timeout(): int
     {
-        return max(1, (int) config('filament-coedit.timeout', 20));
+        // Never shorter than two heartbeats, or people would drop off between them.
+        return max(1, (int) config('filament-coedit.timeout', 20), 2 * (int) config('filament-coedit.heartbeat', 4) + 1);
     }
 
     protected function now(): int
