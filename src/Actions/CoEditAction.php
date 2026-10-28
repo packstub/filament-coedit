@@ -232,7 +232,7 @@ class CoEditAction
             $minePrint = $minePrints[$field] ?? null;
 
             // As ThreeWayMerge::untouched(): text you typed compares exactly.
-            $untouched = is_string($mine[$field] ?? null)
+            $untouched = ThreeWayMerge::typed($mine[$field] ?? null)
                 ? $mineExact[$field] === ($exact[$field] ?? self::fingerprint(null, exact: true))
                 : $minePrint === $basePrint;
 

@@ -139,9 +139,10 @@ trait InteractsWithCoEdit
     }
 
     /**
-     * Fields left out of the merge: your value is saved as in plain Filament.
-     * For fields another process owns (a counter, a status a job sets) or
-     * that are derived from other fields.
+     * Fields left out of the merge: the form's value is saved as in plain
+     * Filament, over anyone's newer one. For fields whose value on this form
+     * should always win (derived from other fields on save); a field a job
+     * owns is safer left in the merge, or off the form.
      *
      * @return list<string>
      */

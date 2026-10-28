@@ -58,11 +58,21 @@ class ThreeWayMerge
      * Whether the form still holds the base. Yours comes from the browser, so it
      * compares through the form noise, except text: an input sends what was typed,
      * so retyping "1.1" as "1.10" is your change, while "12" in an input the record
-     * filled with 12 is not.
+     * filled with 12 is not. A repeater, builder or key-value field compares exactly
+     * too, leaf by leaf: an item you leave alone keeps its types through the browser,
+     * and one you retype is text.
      */
     public static function untouched(mixed $base, mixed $mine): bool
     {
-        return self::normalize($base, exact: is_string($mine)) === self::normalize($mine, exact: is_string($mine));
+        $exact = self::typed($mine);
+
+        return self::normalize($base, $exact) === self::normalize($mine, $exact);
+    }
+
+    /** Whether a value from the browser compares exactly (see untouched()). */
+    public static function typed(mixed $mine): bool
+    {
+        return is_string($mine) || is_array($mine);
     }
 
     /**
@@ -168,6 +178,10 @@ class ThreeWayMerge
                 return null;
             }
 
+            if (($value['type'] ?? null) === 'doc') {
+                $value = self::richDocument($value);
+            }
+
             $keys = array_keys($value);
             $isUuidKeyed = $keys !== [] && array_reduce($keys, fn (bool $carry, int|string $key): bool => $carry && is_string($key) && Str::isUuid($key), true);
 
@@ -190,6 +204,61 @@ class ThreeWayMerge
         $fraction = rtrim($value->format('u'), '0');
 
         return $value->format('Y-m-d H:i:s').($fraction !== '' ? '.'.$fraction : '');
+    }
+
+    /**
+     * Inline nodes of Filament's rich editor; any other node, a custom extension's
+     * included, is a block (embeds are far more common than custom inline nodes).
+     */
+    public const RICH_INLINE = ['text', 'hardBreak', 'image', 'mention', 'mergeTag'];
+
+    /**
+     * A rich editor document as Filament's editor writes it back once it loads
+     * (`normalize-list-item-content.js`): inline content of a list item goes into
+     * a paragraph, and a list item starts with one. Opening the page is no change.
+     *
+     * @param  array<mixed>  $node
+     * @return array<mixed>
+     */
+    protected static function richDocument(array $node): array
+    {
+        if (! is_array($node['content'] ?? null) && ($node['type'] ?? null) !== 'listItem') {
+            return $node;
+        }
+
+        $content = array_map(
+            fn (mixed $child): mixed => is_array($child) ? self::richDocument($child) : $child,
+            array_values((array) ($node['content'] ?? [])),
+        );
+
+        if (($node['type'] ?? null) === 'listItem') {
+            $normalized = [];
+            $paragraph = null;
+
+            foreach ($content as $child) {
+                if (! is_array($child) || ! in_array($child['type'] ?? 'text', self::RICH_INLINE, strict: true)) {
+                    $normalized[] = $child;
+                    $paragraph = null;
+
+                    continue;
+                }
+
+                if ($paragraph === null) {
+                    $normalized[] = ['type' => 'paragraph', 'content' => []];
+                    $paragraph = array_key_last($normalized);
+                }
+
+                $normalized[$paragraph]['content'][] = $child;
+            }
+
+            if (($normalized[0]['type'] ?? null) !== 'paragraph') {
+                array_unshift($normalized, ['type' => 'paragraph', 'content' => []]);
+            }
+
+            $content = $normalized;
+        }
+
+        return [...$node, 'content' => $content];
     }
 
     protected static function number(int|float $value): string

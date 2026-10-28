@@ -13,10 +13,11 @@ First release.
 - Field-level presence: a coloured outline and name tag on the field each person is in, found from `wire:model` or `$entangle()`, put back after Livewire morphs the form.
 - "Ana saved this record" notice with the changed fields, **Get their changes** (pulls them into the open form without saving) and **Dismiss**; it closes as soon as the page has merged that save.
 - `EditAction::make()->coEdit()` for modal edits (relation managers, simple resources, table edit actions): the form is fingerprinted into the modal's state when it opens; on submit, fields only the other person changed are left out of the update, and a conflict stops the first submit with their values in a notice (submitting again keeps yours). Avatars and field markers in the modal; `ignore:` and `presence:` arguments; wraps the action's existing `afterFormFilled()`, `before()` and `after()` callbacks.
-- `getCoEditIgnoredFields()` to leave fields out of the merge (they save as in plain Filament).
+- `getCoEditIgnoredFields()` to leave fields out of the merge: the form's value saves as in plain Filament, over anyone's newer one.
 - Events: `ChangesMerged`, `ConflictDetected`, `ConflictResolved`. `ChangesMerged` and `ConflictResolved` are dispatched once the save is committed, never for a save that failed, stopped or rolled back; what a merge kept or the dialog settled before such a save is told with the save that goes through, one `ChangesMerged` per person whose fields were kept.
 - Rooms include the record's database, so the same id in two tenant databases never shares presence; `PresenceStore::resolveRoomUsing()` to decide otherwise.
 - When a newer save conflicts while the dialog is submitting, the dialog stays open with the new conflicts instead of closing.
+- A rich editor that holds a list is no longer your change just by opening the page (Filament's editor wraps list items in paragraphs as it loads, which opened the dialog against a colleague's edit), and the dialog shows a rich editor's text instead of its document structure.
 - Relationship selects show related records by name in the dialog, also when their options are searched rather than preloaded; `&nbsp;` and other entities read as plain text.
 - `track_fields` config option; a modal's autofocused field is reported as soon as presence starts; a presence component that goes away (a modal closing) leaves the record at once.
 - `coeditMergeBeforeSave()` for pages that override `save()`.
@@ -38,7 +39,7 @@ First release.
 - "Their" version is filled the way the page fills itself (`fillForm()`, with `beforeFill`/`afterFill` and any override), so a value a hook sets is never mistaken for someone else's change and reverted.
 - Value comparison is stricter where it used to be too lenient (and `.5` still equals `0.5`): a text that starts with a date-time is compared in full, only plain decimals count as numbers (`+40123`, `1e3`, `12 ` stay text), long numeric ids are compared digit by digit, and invalid UTF-8 is compared byte for byte.
 - Names are escaped in notifications.
-- Works under `Relation::enforceMorphMap()` whether or not the user model is mapped.
+- Works under `Relation::enforceMorphMap()` whether or not the user model or the edited model is mapped (an unmapped model no longer fails every page, list and modal; a model's own `getMorphClass()` still names its room).
 - After your own save the merge starts from what the save wrote, read back through the form, while the form as you left it still counts as untouched: a value stored differently from how you typed it (`mutateFormDataBeforeSave()`, `dehydrateStateUsing()`, a mutator) no longer comes back as "Someone's" change, never opens the dialog against yourself, and a colleague's later change to it is kept.
 - Pages with their own `save()` call `coeditAfterSave()` once saved (README updated); a record deleted by the save itself no longer fails it.
 - Field markers stay with their record: the page's avatars ignore the fields of a modal open on it (a relation manager row is another record), and a modal's avatars ignore the page's.
@@ -61,7 +62,7 @@ First release.
 - `getCoEditRoom()`, `getCoEditMode()`, `getCoEditIgnoredFields()` and `renderCoEditPresence()` are protected: on a Livewire page a public method can be called from the browser, and the room names the database. Overrides should be `protected` too.
 - The browser gets the others as opaque ids, never their user model and key.
 - The leave beacon reaches apps installed in a subdirectory.
-- Text that only looks like a number is no longer reverted: whether someone else changed a field compares their version with the base exactly (both come from the database), so a version or SKU going from `1.1` to `1.10` is their change and kept, and text you typed compares exactly with the base too, so retyping `1.1` as `1.10` is your change; your typed `10.5` against their `10.50` is still no conflict. A modal save announces such a change too.
+- Text that only looks like a number is no longer reverted: whether someone else changed a field compares their version with the base exactly (both come from the database), so a version or SKU going from `1.1` to `1.10` is their change and kept, and text you typed compares exactly with the base too, so retyping `1.1` as `1.10` is your change, also inside a repeater, builder or key-value field; your typed `10.5` against their `10.50` is still no conflict. A modal save announces such a change too.
 - A modal's fingerprints are hashed, so its state no longer carries a copy of every field.
 - "You saved this record in another tab": your own save is announced to your other tabs of the record (from an edit page or a modal, a list page's included), never to the page that made it.
 - `leave_middleware` config option: middleware for the leave beacon's route, for a cache scoped per tenant (stancl/tenancy's `InitializeTenancyByDomain`).

@@ -2,12 +2,12 @@
 
 ## Leaving fields out
 
-Some fields belong to someone else: a counter a job updates, or a status a webhook sets. Left out of the merge, they save as they do in plain Filament:
+A field left out of the merge saves as it does in plain Filament: the form's value is written, whoever changed it meanwhile. Use it for a field whose value on this form should always win, such as one your page computes from other fields on save. A field a job or a webhook owns (a counter, a status) is safest left in the merge, where their newer value is kept unless you changed it, or off the form altogether:
 
 ```php
 protected function getCoEditIgnoredFields(): array
 {
-    return ['views'];
+    return ['slug']; // set from the title on every save
 }
 ```
 

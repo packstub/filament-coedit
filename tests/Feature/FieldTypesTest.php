@@ -3,6 +3,7 @@
 use Filament\Facades\Filament;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Packstub\CoEdit\Support\FormFields;
 use Packstub\CoEdit\Tests\Fixtures\Category;
 use Packstub\CoEdit\Tests\Fixtures\EditArticle;
 use Packstub\CoEdit\Tests\Fixtures\Label;
@@ -156,4 +157,14 @@ it('cuts very long values in the dialog', function (): void {
         ->call('save')
         ->assertMountedActionModalSee(str_repeat('a', 140).'...')
         ->assertMountedActionModalDontSee(str_repeat('a', 141));
+});
+
+it('shows a rich document as its text in the dialog', function (): void {
+    $form = ionOpens($this->article)->instance()->form;
+    $doc = ['type' => 'doc', 'content' => [
+        ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Hel'], ['type' => 'text', 'text' => 'lo', 'marks' => [['type' => 'bold']]], ['type' => 'text', 'text' => ' world']]],
+        ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Bye'], ['type' => 'hardBreak'], ['type' => 'mention', 'attrs' => ['id' => 3, 'label' => 'Ana']]]],
+    ]];
+
+    expect(FormFields::display($form, 'title', $doc))->toBe('Hello world Bye @Ana');
 });

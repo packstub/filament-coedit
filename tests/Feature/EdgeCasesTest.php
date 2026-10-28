@@ -6,6 +6,7 @@ use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Sleep;
+use Illuminate\Support\Str;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ConflictResolved;
 use Packstub\CoEdit\Livewire\Presence;
@@ -22,6 +23,7 @@ use Packstub\CoEdit\Tests\Fixtures\EditArticleWithOwnSave;
 use Packstub\CoEdit\Tests\Fixtures\Label;
 use Packstub\CoEdit\Tests\Fixtures\ListArticles;
 use Packstub\CoEdit\Tests\Fixtures\NamedUser;
+use Packstub\CoEdit\Tests\Fixtures\User;
 
 use function Pest\Livewire\livewire;
 
@@ -544,4 +546,47 @@ it('keeps a colleague\'s later edit to a number you typed in another form and sa
     $ion->fillForm(['title' => 'Autumn'])->call('save')->assertHasNoFormErrors()->assertActionNotMounted('coeditResolve');
 
     expect($this->article->fresh())->title->toBe('Autumn')->price->toBe('12.00');
+});
+
+it('opens and saves a record under an enforced morph map that leaves its model out', function (): void {
+    Relation::enforceMorphMap(['user' => User::class]);
+
+    try {
+        $this->actingAs($this->ion);
+        $ion = livewire(EditArticle::class, ['record' => $this->article->getKey()])->assertOk();
+
+        $this->article->update(['status' => 'review']);
+
+        $this->actingAs($this->ion);
+        $ion->fillForm(['title' => 'Autumn'])->call('save')->assertHasNoFormErrors();
+
+        expect($this->article->fresh())->title->toBe('Autumn')->status->toBe('review')
+            ->and(PresenceStore::room($this->article))->toContain(Article::class.':');
+
+        livewire(ListArticles::class)->assertOk();
+    } finally {
+        Relation::requireMorphMap(false);
+        Relation::morphMap([], merge: false);
+    }
+});
+
+it('counts a repeater item you retyped as the same-looking number as your change', function (): void {
+    $this->article->update(['tags' => ['1.1']]);
+
+    $this->actingAs($this->ion);
+    $ion = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+    $key = array_key_first($ion->get('data.tags'));
+
+    $this->actingAs($this->ana);
+    $ana = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+    $ana->set('data.tags', [...$ana->get('data.tags'), (string) Str::uuid() => ['name' => 'x']])->call('save')->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->tags)->toBe(['1.1', 'x']);
+
+    $this->actingAs($this->ion);
+    $ion->set("data.tags.{$key}.name", '1.10')->call('save')->assertActionMounted('coeditResolve');
+
+    $ion->setActionData(['choices' => ['tags' => 'mine']])->callMountedAction()->assertHasNoFormErrors();
+
+    expect($this->article->fresh()->tags)->toBe(['1.10']);
 });

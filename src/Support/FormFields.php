@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Packstub\CoEdit\Merge\ThreeWayMerge;
 use Throwable;
 use UnitEnum;
 
@@ -139,6 +140,11 @@ class FormFields
      */
     public static function display(Schema $schema, string $name, mixed $value): string
     {
+        // A rich editor's document reads as its text.
+        if (is_array($value) && ($value['type'] ?? null) === 'doc') {
+            $value = self::richText($value);
+        }
+
         $field = self::find($schema, $name);
         $options = $field && method_exists($field, 'getOptions') ? Arr::dot((array) $field->getOptions()) : [];
 
@@ -166,6 +172,34 @@ class FormFields
         $text = trim(preg_replace('/[\s\x{00A0}]+/u', ' ', html_entity_decode(strip_tags($values->implode(', ')), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
 
         return $text === '' ? __('filament-coedit::coedit.empty') : Str::limit($text, 140);
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    protected static function richText(array $node): string
+    {
+        if (is_string($node['text'] ?? null)) {
+            return $node['text'];
+        }
+
+        if (($node['type'] ?? null) === 'hardBreak') {
+            return ' ';
+        }
+
+        if (($node['type'] ?? null) === 'mention') {
+            $label = $node['attrs']['label'] ?? $node['attrs']['id'] ?? null;
+
+            return is_scalar($label) ? '@'.$label : '';
+        }
+
+        $children = array_values(array_filter((array) ($node['content'] ?? []), is_array(...)));
+        $parts = array_map(self::richText(...), $children);
+
+        // Inline nodes run together (a word split by a mark stays one word), blocks get a space.
+        $inline = $children !== [] && ! in_array(false, array_map(fn (array $child): bool => in_array($child['type'] ?? 'text', ThreeWayMerge::RICH_INLINE, strict: true), $children), strict: true);
+
+        return implode($inline ? '' : ' ', array_filter($parts, fn (string $part): bool => trim($part) !== '' || $inline));
     }
 
     /**
