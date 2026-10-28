@@ -54,7 +54,8 @@ class CoEditAction
                     ...$schema->getRawState(),
                     self::STATE_KEY => [
                         'version' => (int) (CoEdit::store()->lastSave(PresenceStore::room($record))['version'] ?? 0),
-                        'base' => self::fingerprints(FormFields::only($schema, $schema->getRawState(), $ignore)),
+                        'base' => self::fingerprints($filled = FormFields::only($schema, $schema->getRawState(), $ignore)),
+                        'exact' => self::fingerprints($filled, exact: true),
                     ],
                 ]);
             }
@@ -159,7 +160,8 @@ class CoEditAction
         }
 
         $base = array_map(fn (mixed $value): string => is_string($value) ? $value : '', $state['base']);
-        $loaded = $base;
+        $exact = array_map(fn (mixed $value): string => is_string($value) ? $value : '', is_array($state['exact'] ?? null) ? $state['exact'] : []);
+        $loaded = $exact;
 
         // Their version, filled through the same form, then the person's own state put back.
         $record->refresh();
@@ -168,18 +170,26 @@ class CoEditAction
         $schema->rawState($raw);
 
         $theirsPrints = self::fingerprints($theirs);
+        $theirsExact = self::fingerprints($theirs, exact: true);
         $minePrints = self::fingerprints($mine);
         $taken = [];
         $conflicts = [];
 
         foreach ($theirsPrints as $field => $print) {
-            $basePrint = $base[$field] ?? ThreeWayMerge::normalize(null);
+            $basePrint = $base[$field] ?? self::fingerprint(null);
 
-            if ($print === $basePrint || ($minePrints[$field] ?? null) === $print) {
+            // Base and theirs both come from the database: exactly, so "1.1" to "1.10" is theirs.
+            if ($theirsExact[$field] === ($exact[$field] ?? self::fingerprint(null, exact: true))) {
                 continue;
             }
 
-            ($minePrints[$field] ?? null) === $basePrint ? $taken[] = $field : $conflicts[] = $field;
+            $minePrint = $minePrints[$field] ?? null;
+
+            if ($minePrint === $basePrint) {
+                $taken[] = $field;
+            } elseif ($minePrint !== $print) {
+                $conflicts[] = $field;
+            }
         }
 
         $name = self::theirName($record, (int) ($state['version'] ?? 0));
@@ -191,6 +201,7 @@ class CoEditAction
                 unset($data[$field]);
                 $raw[$field] = $theirs[$field] ?? null;
                 $base[$field] = $theirsPrints[$field];
+                $exact[$field] = $theirsExact[$field];
             }
 
             $action->data($data, shouldMutate: false);
@@ -215,9 +226,10 @@ class CoEditAction
         // Seen now: their value becomes the base, so submitting again keeps yours.
         foreach ($conflicts as $field) {
             $base[$field] = $theirsPrints[$field];
+            $exact[$field] = $theirsExact[$field];
         }
 
-        $raw[self::STATE_KEY] = ['version' => (int) (CoEdit::store()->lastSave(PresenceStore::room($record))['version'] ?? 0), 'base' => $base];
+        $raw[self::STATE_KEY] = ['version' => (int) (CoEdit::store()->lastSave(PresenceStore::room($record))['version'] ?? 0), 'base' => $base, 'exact' => $exact];
         $schema->rawState($raw);
 
         $lines = array_map(
@@ -236,7 +248,9 @@ class CoEditAction
     }
 
     /**
-     * @param  array<string, string>  $base
+     * Exactly, so "1.1" to "1.10" is announced; "10" typed over "10.00" is too.
+     *
+     * @param  array<string, string>  $base  exact fingerprints
      * @param  array<string, mixed>  $mine
      * @return list<string>
      */
@@ -244,7 +258,7 @@ class CoEditAction
     {
         $changed = [];
 
-        foreach (self::fingerprints($mine) as $field => $print) {
+        foreach (self::fingerprints($mine, exact: true) as $field => $print) {
             if ($print !== ($base[$field] ?? null)) {
                 $changed[] = FormFields::label($schema, $field);
             }
@@ -257,9 +271,18 @@ class CoEditAction
      * @param  array<string, mixed>  $values
      * @return array<string, string>
      */
-    protected static function fingerprints(array $values): array
+    protected static function fingerprints(array $values, bool $exact = false): array
     {
-        return array_map(ThreeWayMerge::normalize(...), $values);
+        return array_map(fn (mixed $value): string => self::fingerprint($value, $exact), $values);
+    }
+
+    /**
+     * Hashed: the modal's state travels with every request, and a rich text field
+     * would otherwise ride along in full, once per kind of comparison.
+     */
+    protected static function fingerprint(mixed $value, bool $exact = false): string
+    {
+        return hash('xxh128', ThreeWayMerge::normalize($value, $exact));
     }
 
     protected static function theirName(Model $record, int $version): string

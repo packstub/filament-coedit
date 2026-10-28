@@ -324,7 +324,7 @@ trait InteractsWithCoEdit
             $saved = $mine;
         }
 
-        $changed = ThreeWayMerge::changed($this->coeditBase, $saved);
+        $changed = ThreeWayMerge::changed($this->coeditBase, $saved, exact: true);
 
         $this->coeditBase = $saved;
         $this->coeditSaved = [];
@@ -366,7 +366,7 @@ trait InteractsWithCoEdit
     {
         $theirs = $this->coeditFilled();
 
-        return ThreeWayMerge::changed($this->coeditBase, $theirs) === [] ? null : $theirs;
+        return ThreeWayMerge::changed($this->coeditBase, $theirs, exact: true) === [] ? null : $theirs;
     }
 
     /**
@@ -440,7 +440,7 @@ trait InteractsWithCoEdit
     protected function coeditRebase(array $base): void
     {
         foreach (array_keys($this->coeditSaved) as $field) {
-            if (ThreeWayMerge::normalize($base[$field] ?? null) !== ThreeWayMerge::normalize($this->coeditBase[$field] ?? null)) {
+            if (ThreeWayMerge::normalize($base[$field] ?? null, exact: true) !== ThreeWayMerge::normalize($this->coeditBase[$field] ?? null, exact: true)) {
                 unset($this->coeditSaved[$field]);
             }
         }

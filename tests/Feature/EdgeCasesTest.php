@@ -499,3 +499,18 @@ it('ignores the mount hook called again from the browser', function (): void {
 
     expect($ion->instance()->coeditBase)->toBe($base)->and($base['title'])->toBe('Spring launch');
 });
+
+it('keeps a colleague\'s edit to a title that only looks like a number', function (): void {
+    $this->article->update(['title' => '1.1']);
+
+    $this->actingAs($this->ion);
+    $ion = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+
+    $this->actingAs($this->ana);
+    livewire(EditArticle::class, ['record' => $this->article->getKey()])->fillForm(['title' => '1.10'])->call('save');
+
+    $this->actingAs($this->ion);
+    $ion->fillForm(['price' => 20])->call('save')->assertNotified('Kept Ana\'s changes');
+
+    expect($this->article->fresh())->title->toBe('1.10')->price->toBe('20.00');
+});
