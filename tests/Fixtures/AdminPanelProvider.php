@@ -26,7 +26,7 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->pages([Dashboard::class])
-            ->resources([ArticleResource::class])
+            ->resources([ArticleResource::class, CategoryResource::class])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
