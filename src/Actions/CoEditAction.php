@@ -196,7 +196,8 @@ class CoEditAction
 
         // Their version, filled through the same form, then the person's own state put back.
         $record->refresh();
-        $action->mount(['schema' => $schema]);
+        // As Filament mounts it: a mountUsing() closure may ask for `$form` or `$schema`.
+        $action->mount(['form' => $schema, 'schema' => $schema]);
         $theirs = FormFields::only($schema, $schema->getRawState(), $ignore);
         $schema->rawState($raw);
 
