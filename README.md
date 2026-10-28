@@ -96,7 +96,7 @@ use Filament\Actions\EditAction;
 ])
 ```
 
-The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. The merge runs before the form is validated, as on an edit page, so `before()` and `after()` go anywhere in the chain. Set `afterFormFilled()`, `beforeFormValidated()` and an `action()` replacing the save before `coEdit()`, which wraps them. An `afterFormFilled()` or `beforeFormValidated()` set after replaces a part of the merge, and the save then fails loudly (in production: is reported) instead of overwriting anyone unseen; an `action()` set after still merges, but its save is not announced to the others. `coEdit(ignore: ['views'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
+The modal gets the avatars and field markers, and its save merges. A modal has no room for a second dialog, so a conflict works in two steps: the first submit stops, and a notice shows their value for each field you both changed. Submit again to keep yours, or close the modal to keep theirs. The merge runs before the form is validated, as on an edit page, so `before()` and `after()` go anywhere in the chain. Set `afterFormFilled()`, `beforeFormValidated()` and an `action()` replacing the save before `coEdit()`, which wraps them. An `afterFormFilled()` or `beforeFormValidated()` set after replaces a part of the merge, and the save then fails loudly (in production: is reported) instead of overwriting anyone unseen; an `action()` set after still merges, but its save is not announced to the others. `coEdit(ignore: ['slug'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
 
 ### Leaving fields out
 
@@ -105,7 +105,7 @@ A field left out of the merge saves as it does in plain Filament: the form's val
 ```php
 protected function getCoEditIgnoredFields(): array
 {
-    return ['views'];
+    return ['slug']; // set from the title on every save
 }
 ```
 
@@ -167,7 +167,7 @@ When you save, Co-Edit reads the record again, fills it through your form and co
 
 ![The conflict dialog](docs/images/conflict.png)
 
-The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T`, the seconds or a zero fraction (one with a zone is compared in the app's time zone), and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values. Text is not read as a number where it can be told apart: both versions from the database compare exactly, so a version field going from `1.1` to `1.10` is their change and kept, and so does text you typed, so retyping `1.1` as `1.10` is your change, in a text field or an item of a repeater. Only your `10.5` against their `10.50` is no conflict. Each form field is one unit, by its path: `meta.color` in a section with its own `statePath()` and `category.name` in a relationship group (`Group::make()->relationship()`) merge on their own, and two people changing two fields of one group never meet. A repeater, a builder, a key-value field or a JSON column a single field edits merges as a whole.
+The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T`, the seconds or a zero fraction (one with a zone is compared in the app's time zone), and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values. Text is not read as a number where it can be told apart: both versions from the database compare exactly, so a version field going from `1.1` to `1.10` is their change and kept, and so does text you typed, so retyping `1.1` as `1.10` is your change, in a text field or an item of a repeater, builder or key-value field. Only your `10.5` against their `10.50` is no conflict. Each form field is one unit, by its path: `meta.color` in a section with its own `statePath()` and `category.name` in a relationship group (`Group::make()->relationship()`) merge on their own, and two people changing two fields of one group never meet. A repeater, a builder, a key-value field or a JSON column a single field edits merges as a whole.
 
 The merge only covers fields on the form. Attributes the form doesn't edit, like timestamps, counters or columns a job updates, are never written by the merge and never reported.
 

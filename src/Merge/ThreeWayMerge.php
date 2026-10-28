@@ -178,6 +178,10 @@ class ThreeWayMerge
                 return null;
             }
 
+            if (($value['type'] ?? null) === 'doc') {
+                $value = self::richDocument($value);
+            }
+
             $keys = array_keys($value);
             $isUuidKeyed = $keys !== [] && array_reduce($keys, fn (bool $carry, int|string $key): bool => $carry && is_string($key) && Str::isUuid($key), true);
 
@@ -200,6 +204,62 @@ class ThreeWayMerge
         $fraction = rtrim($value->format('u'), '0');
 
         return $value->format('Y-m-d H:i:s').($fraction !== '' ? '.'.$fraction : '');
+    }
+
+    /** Rich editor nodes that hold blocks; anything else in a list item is inline content. */
+    protected const RICH_BLOCKS = [
+        'blockquote', 'bulletList', 'codeBlock', 'customBlock', 'details', 'detailsContent', 'detailsSummary',
+        'grid', 'gridColumn', 'heading', 'horizontalRule', 'listItem', 'orderedList', 'paragraph', 'table',
+        'tableCell', 'tableHeader', 'tableRow', 'taskItem', 'taskList',
+    ];
+
+    /**
+     * A rich editor document as Filament's editor writes it back once it loads
+     * (`normalize-list-item-content.js`): inline content of a list item goes into
+     * a paragraph, and a list item starts with one. Opening the page is no change.
+     *
+     * @param  array<mixed>  $node
+     * @return array<mixed>
+     */
+    protected static function richDocument(array $node): array
+    {
+        if (! is_array($node['content'] ?? null) && ($node['type'] ?? null) !== 'listItem') {
+            return $node;
+        }
+
+        $content = array_map(
+            fn (mixed $child): mixed => is_array($child) ? self::richDocument($child) : $child,
+            array_values((array) ($node['content'] ?? [])),
+        );
+
+        if (($node['type'] ?? null) === 'listItem') {
+            $normalized = [];
+            $paragraph = null;
+
+            foreach ($content as $child) {
+                if (is_array($child) && in_array($child['type'] ?? null, self::RICH_BLOCKS, strict: true)) {
+                    $normalized[] = $child;
+                    $paragraph = null;
+
+                    continue;
+                }
+
+                if ($paragraph === null) {
+                    $normalized[] = ['type' => 'paragraph', 'content' => []];
+                    $paragraph = array_key_last($normalized);
+                }
+
+                $normalized[$paragraph]['content'][] = $child;
+            }
+
+            if (($normalized[0]['type'] ?? null) !== 'paragraph') {
+                array_unshift($normalized, ['type' => 'paragraph', 'content' => []]);
+            }
+
+            $content = $normalized;
+        }
+
+        return [...$node, 'content' => $content];
     }
 
     protected static function number(int|float $value): string

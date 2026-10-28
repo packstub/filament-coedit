@@ -7,7 +7,7 @@ A field left out of the merge saves as it does in plain Filament: the form's val
 ```php
 protected function getCoEditIgnoredFields(): array
 {
-    return ['views'];
+    return ['slug']; // set from the title on every save
 }
 ```
 

@@ -176,3 +176,24 @@ it('still reads array items the browser did not retype as unchanged', function (
         ->and(ThreeWayMerge::untouched(['price' => 10.0, 'on' => true], ['price' => 10, 'on' => true]))->toBeTrue()
         ->and(ThreeWayMerge::untouched(['0f8fad5b-d9cb-469f-a165-70867728950e' => 'a.jpg'], ['7c9e6679-7425-40de-944b-e07fc1f90ae7' => 'a.jpg']))->toBeTrue();
 });
+
+it('reads a rich document as the editor writes it back once loaded as the same document', function (): void {
+    $text = fn (string $text): array => ['type' => 'text', 'text' => $text];
+    $loaded = ['type' => 'doc', 'content' => [
+        ['type' => 'bulletList', 'content' => [
+            ['type' => 'listItem', 'content' => [['type' => 'paragraph', 'content' => [$text('One')]]]],
+            ['type' => 'listItem', 'content' => [$text('Two')]],
+            ['type' => 'listItem', 'content' => [['type' => 'bulletList', 'content' => []]]],
+        ]],
+    ]];
+    $written = ['type' => 'doc', 'content' => [
+        ['type' => 'bulletList', 'content' => [
+            ['type' => 'listItem', 'content' => [['type' => 'paragraph', 'content' => [$text('One')]]]],
+            ['type' => 'listItem', 'content' => [['type' => 'paragraph', 'content' => [$text('Two')]]]],
+            ['type' => 'listItem', 'content' => [['type' => 'paragraph', 'content' => []], ['type' => 'bulletList', 'content' => []]]],
+        ]],
+    ]];
+
+    expect(ThreeWayMerge::untouched($loaded, $written))->toBeTrue()
+        ->and(ThreeWayMerge::normalize($written))->not->toBe(ThreeWayMerge::normalize([...$written, 'content' => [['type' => 'paragraph', 'content' => [$text('Other')]]]]));
+});

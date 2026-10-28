@@ -4,6 +4,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Sleep;
 use Packstub\CoEdit\Presence\PresenceStore;
+use Packstub\CoEdit\Tests\Fixtures\Article;
 
 function who(string $id, string $name): array
 {
@@ -156,4 +157,19 @@ it('holds a value for one take, by the same person on the same record only', fun
         ->and($this->store->take('article:1', 'user:1', ''))->toBeNull()
         ->and($this->store->take('article:1', 'user:1', $token))->toBe(['price' => 'Ana'])
         ->and($this->store->take('article:1', 'user:1', $token))->toBeNull();
+});
+
+it('keeps a model\'s own morph class in its room', function (): void {
+    $child = new class extends Article
+    {
+        protected $table = 'articles';
+
+        public function getMorphClass(): string
+        {
+            return 'article';
+        }
+    };
+    $child->forceFill(['id' => 7]);
+
+    expect(PresenceStore::room($child))->toEndWith('|article:7');
 });

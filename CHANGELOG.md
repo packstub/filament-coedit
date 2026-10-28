@@ -17,6 +17,7 @@ First release.
 - Events: `ChangesMerged`, `ConflictDetected`, `ConflictResolved`. `ChangesMerged` and `ConflictResolved` are dispatched once the save is committed, never for a save that failed, stopped or rolled back; what a merge kept or the dialog settled before such a save is told with the save that goes through, one `ChangesMerged` per person whose fields were kept.
 - Rooms include the record's database, so the same id in two tenant databases never shares presence; `PresenceStore::resolveRoomUsing()` to decide otherwise.
 - When a newer save conflicts while the dialog is submitting, the dialog stays open with the new conflicts instead of closing.
+- A rich editor that holds a list is no longer your change just by opening the page (Filament's editor wraps list items in paragraphs as it loads, which opened the dialog against a colleague's edit), and the dialog shows a rich editor's text instead of its document structure.
 - Relationship selects show related records by name in the dialog, also when their options are searched rather than preloaded; `&nbsp;` and other entities read as plain text.
 - `track_fields` config option; a modal's autofocused field is reported as soon as presence starts; a presence component that goes away (a modal closing) leaves the record at once.
 - `coeditMergeBeforeSave()` for pages that override `save()`.
@@ -38,7 +39,7 @@ First release.
 - "Their" version is filled the way the page fills itself (`fillForm()`, with `beforeFill`/`afterFill` and any override), so a value a hook sets is never mistaken for someone else's change and reverted.
 - Value comparison is stricter where it used to be too lenient (and `.5` still equals `0.5`): a text that starts with a date-time is compared in full, only plain decimals count as numbers (`+40123`, `1e3`, `12 ` stay text), long numeric ids are compared digit by digit, and invalid UTF-8 is compared byte for byte.
 - Names are escaped in notifications.
-- Works under `Relation::enforceMorphMap()` whether or not the user model or the edited model is mapped (an unmapped model no longer fails every page, list and modal).
+- Works under `Relation::enforceMorphMap()` whether or not the user model or the edited model is mapped (an unmapped model no longer fails every page, list and modal; a model's own `getMorphClass()` still names its room).
 - After your own save the merge starts from what the save wrote, read back through the form, while the form as you left it still counts as untouched: a value stored differently from how you typed it (`mutateFormDataBeforeSave()`, `dehydrateStateUsing()`, a mutator) no longer comes back as "Someone's" change, never opens the dialog against yourself, and a colleague's later change to it is kept.
 - Pages with their own `save()` call `coeditAfterSave()` once saved (README updated); a record deleted by the save itself no longer fails it.
 - Field markers stay with their record: the page's avatars ignore the fields of a modal open on it (a relation manager row is another record), and a modal's avatars ignore the page's.

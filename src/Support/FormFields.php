@@ -139,6 +139,11 @@ class FormFields
      */
     public static function display(Schema $schema, string $name, mixed $value): string
     {
+        // A rich editor's document reads as its text.
+        if (is_array($value) && ($value['type'] ?? null) === 'doc') {
+            $value = self::richText($value);
+        }
+
         $field = self::find($schema, $name);
         $options = $field && method_exists($field, 'getOptions') ? Arr::dot((array) $field->getOptions()) : [];
 
@@ -166,6 +171,23 @@ class FormFields
         $text = trim(preg_replace('/[\s\x{00A0}]+/u', ' ', html_entity_decode(strip_tags($values->implode(', ')), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
 
         return $text === '' ? __('filament-coedit::coedit.empty') : Str::limit($text, 140);
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    protected static function richText(array $node): string
+    {
+        if (is_string($node['text'] ?? null)) {
+            return $node['text'];
+        }
+
+        $parts = array_map(
+            fn (mixed $child): string => is_array($child) ? self::richText($child) : '',
+            array_values((array) ($node['content'] ?? [])),
+        );
+
+        return implode(' ', array_filter($parts, fn (string $part): bool => trim($part) !== ''));
     }
 
     /**

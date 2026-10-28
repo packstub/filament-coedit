@@ -6,8 +6,8 @@ use Closure;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Database\ClassMorphViolationException;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
@@ -36,8 +36,15 @@ class PresenceStore
             return (string) (static::$roomResolver)($record);
         }
 
-        // getMorphAlias(), not getMorphClass(): it never throws under an enforced morph map that leaves the model out.
-        return $record->getConnection()->getDatabaseName().'|'.Relation::getMorphAlias($record::class).':'.$record->getKey();
+        // The model's own morph class (an override shares a room between a parent and its
+        // single-table children); its class name when an enforced morph map leaves it out.
+        try {
+            $type = $record->getMorphClass();
+        } catch (ClassMorphViolationException) {
+            $type = $record::class;
+        }
+
+        return $record->getConnection()->getDatabaseName().'|'.$type.':'.$record->getKey();
     }
 
     /**
