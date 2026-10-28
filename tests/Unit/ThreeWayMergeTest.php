@@ -197,3 +197,15 @@ it('reads a rich document as the editor writes it back once loaded as the same d
     expect(ThreeWayMerge::untouched($loaded, $written))->toBeTrue()
         ->and(ThreeWayMerge::normalize($written))->not->toBe(ThreeWayMerge::normalize([...$written, 'content' => [['type' => 'paragraph', 'content' => [$text('Other')]]]]));
 });
+
+it('keeps a lead or another block node in a list item as a block', function (string $block): void {
+    $text = ['type' => 'text', 'text' => 'Intro'];
+    $stored = ['type' => 'doc', 'content' => [['type' => 'bulletList', 'content' => [
+        ['type' => 'listItem', 'content' => [['type' => $block, 'content' => [['type' => 'paragraph', 'content' => [$text]]]]]],
+    ]]]];
+    $written = ['type' => 'doc', 'content' => [['type' => 'bulletList', 'content' => [
+        ['type' => 'listItem', 'content' => [['type' => 'paragraph', 'content' => []], ['type' => $block, 'content' => [['type' => 'paragraph', 'content' => [$text]]]]]],
+    ]]]];
+
+    expect(ThreeWayMerge::untouched($stored, $written))->toBeTrue();
+})->with(['lead', 'someEmbed']);

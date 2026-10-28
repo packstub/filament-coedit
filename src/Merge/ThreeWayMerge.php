@@ -206,12 +206,11 @@ class ThreeWayMerge
         return $value->format('Y-m-d H:i:s').($fraction !== '' ? '.'.$fraction : '');
     }
 
-    /** Rich editor nodes that hold blocks; anything else in a list item is inline content. */
-    protected const RICH_BLOCKS = [
-        'blockquote', 'bulletList', 'codeBlock', 'customBlock', 'details', 'detailsContent', 'detailsSummary',
-        'grid', 'gridColumn', 'heading', 'horizontalRule', 'listItem', 'orderedList', 'paragraph', 'table',
-        'tableCell', 'tableHeader', 'tableRow', 'taskItem', 'taskList',
-    ];
+    /**
+     * Inline nodes of Filament's rich editor; any other node, a custom extension's
+     * included, is a block (embeds are far more common than custom inline nodes).
+     */
+    public const RICH_INLINE = ['text', 'hardBreak', 'image', 'mention', 'mergeTag'];
 
     /**
      * A rich editor document as Filament's editor writes it back once it loads
@@ -237,7 +236,7 @@ class ThreeWayMerge
             $paragraph = null;
 
             foreach ($content as $child) {
-                if (is_array($child) && in_array($child['type'] ?? null, self::RICH_BLOCKS, strict: true)) {
+                if (! is_array($child) || ! in_array($child['type'] ?? 'text', self::RICH_INLINE, strict: true)) {
                     $normalized[] = $child;
                     $paragraph = null;
 

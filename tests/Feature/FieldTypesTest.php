@@ -161,7 +161,10 @@ it('cuts very long values in the dialog', function (): void {
 
 it('shows a rich document as its text in the dialog', function (): void {
     $form = ionOpens($this->article)->instance()->form;
-    $doc = ['type' => 'doc', 'content' => [['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Hello'], ['type' => 'text', 'text' => 'world', 'marks' => [['type' => 'bold']]]]]]];
+    $doc = ['type' => 'doc', 'content' => [
+        ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Hel'], ['type' => 'text', 'text' => 'lo', 'marks' => [['type' => 'bold']]], ['type' => 'text', 'text' => ' world']]],
+        ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Bye']]],
+    ]];
 
-    expect(FormFields::display($form, 'title', $doc))->toBe('Hello world');
+    expect(FormFields::display($form, 'title', $doc))->toBe('Hello world Bye');
 });

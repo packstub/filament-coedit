@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Packstub\CoEdit\Merge\ThreeWayMerge;
 use Throwable;
 use UnitEnum;
 
@@ -182,12 +183,13 @@ class FormFields
             return $node['text'];
         }
 
-        $parts = array_map(
-            fn (mixed $child): string => is_array($child) ? self::richText($child) : '',
-            array_values((array) ($node['content'] ?? [])),
-        );
+        $children = array_values(array_filter((array) ($node['content'] ?? []), is_array(...)));
+        $parts = array_map(self::richText(...), $children);
 
-        return implode(' ', array_filter($parts, fn (string $part): bool => trim($part) !== ''));
+        // Inline nodes run together (a word split by a mark stays one word), blocks get a space.
+        $inline = $children !== [] && ! in_array(false, array_map(fn (array $child): bool => in_array($child['type'] ?? 'text', ThreeWayMerge::RICH_INLINE, strict: true), $children), strict: true);
+
+        return implode($inline ? '' : ' ', array_filter($parts, fn (string $part): bool => trim($part) !== '' || $inline));
     }
 
     /**
