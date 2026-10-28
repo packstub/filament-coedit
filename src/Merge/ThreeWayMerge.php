@@ -123,9 +123,9 @@ class ThreeWayMerge
                 return null;
             }
 
-            // Plain decimals only ("12", "10.00", "-3.5"), compared digit by digit: "+12",
+            // Plain decimals only ("12", "10.00", "-3.5", ".5"), compared digit by digit: "+12",
             // "1e3", "12 " and leading zeros stay text, and long ids never pass through a float.
-            if (preg_match('/^-?(0|[1-9]\d*)(\.\d+)?$/', $value)) {
+            if (preg_match('/^-?((0|[1-9]\d*)(\.\d+)?|\.\d+)$/', $value)) {
                 return self::decimal($value);
             }
 
@@ -164,10 +164,17 @@ class ThreeWayMerge
     }
 
     /**
-     * "10.50" → "10.5", "10.00" → "10", "-0.0" → "0".
+     * "10.50" → "10.5", "10.00" → "10", ".5" → "0.5", "-0.0" → "0". Like a float,
+     * a fraction counts to 10 places.
      */
     protected static function decimal(string $value): string
     {
+        $value = preg_replace('/^(-?)\./', '${1}0.', $value) ?? $value;
+
+        if (strlen(Str::after($value, '.')) > 10 && str_contains($value, '.')) {
+            $value = number_format((float) $value, 10, '.', '');
+        }
+
         if (str_contains($value, '.')) {
             $value = rtrim(rtrim($value, '0'), '.');
         }

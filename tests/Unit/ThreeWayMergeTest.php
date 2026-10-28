@@ -71,6 +71,9 @@ it('sees through the type noise forms add', function (mixed $a, mixed $b): void 
     'serialised datetime cast and form value' => ['2026-10-21T10:30:00.000000Z', '2026-10-21 10:30:00'],
     'negative decimal and float' => ['-3.50', -3.5],
     'negative zero' => ['-0.0', 0],
+    'a number input without its leading zero' => ['.5', '0.5'],
+    'negative without its leading zero' => ['-.5', -0.5],
+    'a float past ten places and its digits' => [1 / 3, '0.33333333333333331483'],
 ]);
 
 it('still tells real differences apart', function (mixed $a, mixed $b): void {
