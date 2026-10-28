@@ -66,12 +66,12 @@ class FormFields
 
     /**
      * A field's key in a schema's state, the dialog's or a modal's fingerprints:
-     * a dot there would nest it.
+     * a dot there would nest it. The `@` of a translated field's locale goes too.
      */
     public static function key(string $name): string
     {
         // Reversible, so `a.b` and `a_b` never share a key.
-        return strtr($name, ['_' => '_u', '.' => '_d']);
+        return strtr($name, ['_' => '_u', '.' => '_d', '@' => '_a']);
     }
 
     /**

@@ -58,6 +58,14 @@ abstract class TestCase extends Orchestra
             $table->string('name');
         });
 
+        Schema::create('pages', function (Blueprint $table): void {
+            $table->id();
+            $table->json('title');
+            $table->json('body')->nullable();
+            $table->string('slug')->nullable();
+            $table->timestamps();
+        });
+
         Schema::create('labels', function (Blueprint $table): void {
             $table->id();
             $table->string('name');

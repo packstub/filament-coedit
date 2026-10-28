@@ -9,6 +9,7 @@ use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
@@ -130,6 +131,22 @@ trait InteractsWithCoEdit
         return [];
     }
 
+    /**
+     * Attributes translated on this page with Filament's spatie-translatable plugin.
+     * Each locale of one is a field of its own (`title@ro`), whichever locale the
+     * form shows: the others wait in `$otherLocaleData` and are saved too.
+     *
+     * @return list<string>
+     */
+    protected function getCoEditTranslatableAttributes(): array
+    {
+        if (! property_exists($this, 'otherLocaleData') || ! property_exists($this, 'activeLocale') || ! method_exists(static::getResource(), 'getTranslatableAttributes')) {
+            return [];
+        }
+
+        return array_values(static::getResource()::getTranslatableAttributes());
+    }
+
     public function callMountedAction(array $arguments = []): mixed
     {
         $this->coeditCallingActions++;
@@ -194,8 +211,8 @@ trait InteractsWithCoEdit
         Notification::make()
             ->title(__('filament-coedit::coedit.pull.title'))
             ->body($result->hasConflicts()
-                ? __('filament-coedit::coedit.pull.conflicts', ['fields' => FormFields::labels($this->form, $result->conflicts)])
-                : ($result->taken === [] ? null : __('filament-coedit::coedit.pull.taken', ['fields' => FormFields::labels($this->form, $result->taken)])))
+                ? __('filament-coedit::coedit.pull.conflicts', ['fields' => $this->coeditLabels($result->conflicts)])
+                : ($result->taken === [] ? null : __('filament-coedit::coedit.pull.taken', ['fields' => $this->coeditLabels($result->taken)])))
             ->success()
             ->send();
     }
@@ -210,14 +227,14 @@ trait InteractsWithCoEdit
             ->modalDescription(fn (): string => trans_choice('filament-coedit::coedit.conflict.description', count($this->coeditConflicts), ['name' => $this->coeditTheirName()]))
             ->schema(fn (): array => array_map(
                 fn (string $field): Radio => Radio::make('choices.'.FormFields::key($field))
-                    ->label(FormFields::label($this->form, $field))
+                    ->label($this->coeditLabel($field))
                     ->options([
                         'mine' => __('filament-coedit::coedit.conflict.mine'),
                         'theirs' => __('filament-coedit::coedit.conflict.theirs', ['name' => $this->coeditTheirName()]),
                     ])
                     ->descriptions([
-                        'mine' => FormFields::display($this->form, $field, $this->coeditFields()[$field] ?? null),
-                        'theirs' => FormFields::display($this->form, $field, $this->coeditTheirs[$field] ?? null),
+                        'mine' => FormFields::display($this->form, $this->coeditPathOf($field)[0], $this->coeditFields()[$field] ?? null),
+                        'theirs' => FormFields::display($this->form, $this->coeditPathOf($field)[0], $this->coeditTheirs[$field] ?? null),
                     ])
                     ->default('mine')
                     ->inline()
@@ -296,7 +313,7 @@ trait InteractsWithCoEdit
 
             Notification::make()
                 ->title(__('filament-coedit::coedit.taken.title', ['name' => e($name)]))
-                ->body(__('filament-coedit::coedit.taken.body', ['fields' => FormFields::labels($this->form, $result->taken)]))
+                ->body(__('filament-coedit::coedit.taken.body', ['fields' => $this->coeditLabels($result->taken)]))
                 ->info()
                 ->send();
         }
@@ -406,7 +423,7 @@ trait InteractsWithCoEdit
         }
 
         $labels = array_map(
-            fn (string $field): string => FormFields::label($this->form, $field),
+            fn (string $field): string => $this->coeditLabel($field),
             array_values(array_intersect(array_keys($mine), $changed)),
         );
 
@@ -529,19 +546,91 @@ trait InteractsWithCoEdit
      */
     protected function coeditFields(): array
     {
-        return FormFields::only($this->form, $this->data ?? [], $this->getCoEditIgnoredFields());
+        $fields = FormFields::only($this->form, $this->data ?? [], $this->getCoEditIgnoredFields());
+        $translatable = $this->coeditTranslatable();
+
+        if ($translatable === []) {
+            return $fields;
+        }
+
+        $active = (string) $this->activeLocale;
+
+        foreach ($translatable as $attribute) {
+            if (array_key_exists($attribute, $fields)) {
+                $fields["{$attribute}@{$active}"] = $fields[$attribute];
+            }
+
+            unset($fields[$attribute]);
+
+            foreach ($this->otherLocaleData as $locale => $values) {
+                if ((string) $locale !== $active && is_array($values) && array_key_exists($attribute, $values)) {
+                    $fields["{$attribute}@{$locale}"] = $values[$attribute];
+                }
+            }
+        }
+
+        return $fields;
     }
 
     /**
-     * Put values into the form, by path.
+     * Put values into the form, by path; another locale's into the data it waits in.
      *
      * @param  array<string, mixed>  $values
      */
     protected function coeditWrite(array $values): void
     {
         foreach ($values as $field => $value) {
-            data_set($this->data, $field, $value);
+            [$path, $locale] = $this->coeditPathOf($field);
+
+            if ($locale !== null && $locale !== (string) $this->activeLocale) {
+                $this->otherLocaleData[$locale][$path] = $value;
+
+                continue;
+            }
+
+            data_set($this->data, $path, $value);
         }
+    }
+
+    /**
+     * Translatable attributes the form edits and does not ignore.
+     *
+     * @return list<string>
+     */
+    protected function coeditTranslatable(): array
+    {
+        $attributes = $this->getCoEditTranslatableAttributes();
+
+        return $attributes === [] ? [] : array_values(array_intersect($attributes, FormFields::names($this->form, $this->getCoEditIgnoredFields())));
+    }
+
+    /**
+     * A merge field's path in the form, and its locale for a translatable one.
+     *
+     * @return array{0: string, 1: ?string}
+     */
+    protected function coeditPathOf(string $field): array
+    {
+        if (str_contains($field, '@') && in_array($attribute = Str::beforeLast($field, '@'), $this->coeditTranslatable(), strict: true)) {
+            return [$attribute, Str::afterLast($field, '@')];
+        }
+
+        return [$field, null];
+    }
+
+    protected function coeditLabel(string $field): string
+    {
+        [$path, $locale] = $this->coeditPathOf($field);
+
+        return FormFields::label($this->form, $path).($locale !== null ? ' ('.Str::upper($locale).')' : '');
+    }
+
+    /**
+     * @param  list<string>  $fields
+     */
+    protected function coeditLabels(array $fields): string
+    {
+        return implode(', ', array_map($this->coeditLabel(...), $fields));
     }
 
     protected function coeditNotifyDeleted(): void

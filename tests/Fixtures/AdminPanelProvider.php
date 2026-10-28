@@ -15,6 +15,7 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use LaraZeus\SpatieTranslatable\SpatieTranslatablePlugin;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -26,7 +27,8 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->pages([Dashboard::class])
-            ->resources([ArticleResource::class, CategoryResource::class])
+            ->resources([ArticleResource::class, CategoryResource::class, PageResource::class])
+            ->plugin(SpatieTranslatablePlugin::make()->defaultLocales(['en', 'ro']))
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
