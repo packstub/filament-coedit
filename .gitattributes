@@ -25,3 +25,5 @@
 /CLAUDE.md          export-ignore
 /CHANGELOG.md       export-ignore
 /UPGRADE.md         export-ignore
+/workbench          export-ignore
+/scripts            export-ignore
