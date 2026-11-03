@@ -2,6 +2,8 @@
 
 <div class="filament-hidden">
 
+![Filament Co-Edit: an edit page with Ana in Price and Mihai in Description, their avatars in the header, and a notice that Ana saved the record](https://raw.githubusercontent.com/packstub/art/main/filament-coedit/banner.jpg)
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/packstub/filament-coedit.svg?style=flat-square)](https://packagist.org/packages/packstub/filament-coedit)
 [![Tests](https://img.shields.io/github/actions/workflow/status/packstub/filament-coedit/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/packstub/filament-coedit/actions/workflows/tests.yml)
 [![License](https://img.shields.io/packagist/l/packstub/filament-coedit.svg?style=flat-square)](https://github.com/packstub/filament-coedit/blob/main/LICENSE.md)
@@ -10,7 +12,7 @@
 
 Several people can edit the same Filament record without locking each other out. You see who else is on the record and which field they are typing in. When you save, their changes and yours are merged field by field. Free and open source (MIT).
 
-![Ana is in Price, Mihai is in Description](docs/images/presence.png)
+![Ion types in Description while Ana changes the price and saves; his save keeps her price and his text](https://raw.githubusercontent.com/packstub/art/main/filament-coedit/docs/coedit.gif)
 
 In Filament, the last save wins: when two people have a record open, the second save writes its whole form over the first. A record lock is one way to handle that, with one person editing while the others wait. Co-Edit merges instead, the way git merges two branches. Everyone keeps editing, and a save only asks you to choose when you and someone else changed the *same field*. Locks are a great fit when only one person should touch a record at a time. Co-Edit is for teams who would rather work on it side by side.
 
