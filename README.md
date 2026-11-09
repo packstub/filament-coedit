@@ -40,9 +40,11 @@ These minimums are the first Filament releases with the fixes for the multi-fact
 ## Installation
 
 ```bash
-composer require packstub/filament-coedit
+composer require packstub/filament-coedit:^1.0@beta
 php artisan filament:assets
 ```
+
+Co-Edit is in public beta until 1.0; the `@beta` constraint lets Composer install it without changing your project's minimum stability.
 
 ## Usage
 
