@@ -15,7 +15,7 @@ class ChangesMerged
 
     /**
      * @param  list<string>  $fields  form field paths (`title`, `meta.color` in a section with its own state path)
-     * @param  string|null  $theirName  who saved last, when Co-Edit knows
+     * @param  string|null  $theirName  who saved last as Co-Edit names them: the translated "Someone" when the save was made outside Co-Edit or too long ago
      */
     public function __construct(
         public readonly Model $record,

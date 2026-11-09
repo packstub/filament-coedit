@@ -4,7 +4,7 @@ use Packstub\CoEdit\Tests\Fixtures\Article;
 use Packstub\CoEdit\Tests\Fixtures\User;
 use Packstub\CoEdit\Tests\TestCase;
 
-pest()->extend(TestCase::class)->in('Feature', 'Unit');
+pest()->extend(TestCase::class)->in('Feature', 'Security', 'Unit');
 
 function user(string $name): User
 {

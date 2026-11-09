@@ -9,9 +9,10 @@ return [
     |
     | Presence lives in the cache, never in the database: who is on a record,
     | which field they are in, and who saved it last. Any store that supports
-    | atomic locks works (redis, database, memcached, dynamodb, file, array).
-    | Null uses the default store. Every server must share the store, so the
-    | file driver only fits a single machine.
+    | atomic locks works (redis, database, memcached, dynamodb, file). Null
+    | uses the default store. Every server must share the store, so the file
+    | driver only fits a single machine, and the array store only a test: it
+    | forgets everything when the request ends.
     |
     */
 
