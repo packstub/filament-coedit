@@ -65,4 +65,4 @@ logins to 5 a minute per IP, so wait a minute between runs.
 - Rooms include `getConnection()->getDatabaseName()` (database-per-tenant apps); `PresenceStore::resolveRoomUsing()`.
 - Filament floor is 4.13.3 / 5.8.3 (earlier versions are blocked by Composer's security advisories); CI runs
   4.13.3, 4.*, 5.8.3 and 5.*.
-- Every change needs a test; `CHANGELOG.md` stays current. Strings in `resources/lang/{en,ro,ru,de}`.
+- Every change needs a test; `CHANGELOG.md` stays current: a short section written for people (an optional lead sentence, one-line bullets, breaking changes as `**Upgrading:**` steps, security fixes said as such, no API listings); the release appends GitHub's list of merged pull requests. Strings in `resources/lang/{en,ro,ru,de}`.
