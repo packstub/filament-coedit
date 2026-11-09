@@ -133,8 +133,9 @@ class Presence extends Component
                 'context' => $this->context,
                 'trackFields' => (bool) config('filament-coedit.track_fields', true),
                 'initial' => $this->snapshotWith($members),
-                'now' => now()->getTimestamp(),
+                'room' => $this->room,
                 'leave' => static::leaveUrl($this->room, $this->tab),
+                'labels' => __('filament-coedit::coedit.notice'),
             ],
         ]);
     }

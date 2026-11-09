@@ -14,7 +14,7 @@ return [
     'notice' => [
         'title' => ':name saved this record',
         'self_title' => 'You saved this record in another tab',
-        'fields' => 'Changed :fields ·',
+        'fields' => 'Changed :fields.',
         'hint' => 'Saving keeps their changes. You only choose for fields you both edited.',
         'self_hint' => 'Saving here keeps what you saved there, except fields you changed here too.',
         'modal_hint' => 'Saving keeps their changes. For a field you both edited you see their value first; save again to keep yours.',

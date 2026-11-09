@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Gate;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
 use Packstub\CoEdit\Events\ConflictDetected;
+use Packstub\CoEdit\Presence\PresenceStore;
 use Packstub\CoEdit\Support\FormFields;
 use Packstub\CoEdit\Tests\Fixtures\Article;
 use Packstub\CoEdit\Tests\Fixtures\Category;
@@ -39,6 +40,17 @@ it('refuses "Get their changes" to a person who may no longer edit the record', 
     Gate::policy(Article::class, ForbiddingArticlePolicy::class);
 
     $ion->call('coeditPull')->assertStatus(403);
+});
+
+it('refuses the save notice\'s "Get their changes" to a person who may no longer edit the record', function (): void {
+    $this->actingAs($this->ion);
+    $ion = livewire(EditArticle::class, ['record' => $this->article->getKey()]);
+
+    $this->article->update(['title' => 'Changed by Ana']);
+    Gate::policy(Article::class, ForbiddingArticlePolicy::class);
+
+    $ion->dispatch('coedit-pull', room: PresenceStore::opaque(PresenceStore::room($this->article)))->assertStatus(403);
+    expect($ion->get('data.title'))->not->toBe('Changed by Ana');
 });
 
 /** Signs in on the panel's own guard only, as a request through a panel with `authGuard('staff')` arrives: the default guard stays empty. */

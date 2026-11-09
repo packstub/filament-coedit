@@ -97,14 +97,16 @@ it('keeps a modal\'s fields out of the page\'s room and the page\'s out of the m
     expect(collect(CoEdit::store()->members($this->room))->firstWhere('name', 'Ion')['fields'])->toBe(['mountedActions.0.data.status']);
 });
 
-it('offers to get their changes on an edit page, not in a modal that cannot be refilled', function (): void {
+it('tells the browser whether the notice sits on an edit page or in a modal that cannot be refilled', function (): void {
     CoEdit::store()->recordSave($this->room, CoEdit::who($this->ana), ['Title']);
 
-    presenceAs($this->ion, $this->room)->assertSee('Get their changes');
-
-    livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'context' => 'modal'])
-        ->assertDontSee('Get their changes')
-        ->assertSee('save again to keep yours');
+    // The browser draws the notice (a Filament notification) from this: "Get their changes" only on a page.
+    expect(presenceAs($this->ion, $this->room)->viewData('config'))
+        ->toMatchArray(['mode' => 'editing', 'context' => 'page'])
+        ->and(livewire(Presence::class, ['room' => $this->room, 'mode' => 'editing', 'context' => 'modal'])->viewData('config'))
+        ->toMatchArray(['context' => 'modal'])
+        ->labels->toMatchArray(['pull' => 'Get their changes', 'modal_hint' => __('filament-coedit::coedit.notice.modal_hint')])
+        ->initial->save->toMatchArray(['name' => 'Ana', 'fields' => ['Title']]);
 });
 
 it('tells the browser when to stop reporting in, so an unattended page lets the session expire', function (): void {
@@ -181,6 +183,14 @@ it('tells you about your own save in another tab', function (): void {
     expect($ionPresence->instance()->snapshot()['save'])->toMatchArray(['self' => true, 'fields' => ['Title']]);
 
     $ionPresence->assertSee(__('filament-coedit::coedit.notice.self_title'));
+});
+
+it('hands the notice labels and the room to the browser, which draws the notice as a Filament notification', function (): void {
+    presenceAs($this->ion, $this->room)
+        ->assertSee(__('filament-coedit::coedit.notice.pull'))
+        ->assertSee(__('filament-coedit::coedit.notice.dismiss'))
+        ->assertSee(PresenceStore::opaque($this->room))
+        ->assertDontSee('fi-coedit-notice');
 });
 
 it('hands the page\'s origin to its avatars', function (): void {
