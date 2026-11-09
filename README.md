@@ -225,4 +225,4 @@ Try it with three people: `composer serve` starts a workbench panel on `http://1
 
 ## License
 
-MIT. See [LICENSE.md](LICENSE.md).
+MIT. See [LICENSE.md](https://github.com/packstub/filament-coedit/blob/main/LICENSE.md).
