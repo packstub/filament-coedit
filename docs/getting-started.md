@@ -50,6 +50,8 @@ When someone else saves while you are editing, a notice names them and the field
 
 **Get their changes** brings their values into your open form for every field you have not touched, without saving. **Dismiss** hides the notice. Your next save keeps their changes either way.
 
-When you save, a toast lists what was kept from their save:
+When you save, a notification lists the fields kept from their save:
 
 ![Kept Ana's changes](images/merged.png)
+
+Next: [How the merge works](how-the-merge-works.md).
