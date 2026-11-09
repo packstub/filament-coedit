@@ -4,6 +4,8 @@ All notable changes to `packstub/filament-coedit` are documented in this file.
 
 ## Unreleased
 
+## 1.0.0-beta.1 - 2026-11-09
+
 First release of Filament Co-Edit: edit records together without locks. You see who is on the record down to the field, and saves merge field by field. Requires Filament 4.13.3+ or 5.8.3+.
 
 - Add `InteractsWithCoEdit` to an edit page: changes only someone else made are kept, yours are saved
