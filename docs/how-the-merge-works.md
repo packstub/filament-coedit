@@ -10,7 +10,7 @@ When you save, Co-Edit reads the record from the database again and loads it thr
 | yes, the same way | yes | saved, no question |
 | yes | yes, differently | the dialog asks you |
 
-![The conflict dialog](images/conflict.png)
+![The conflict dialog](https://raw.githubusercontent.com/packstub/art/main/filament-coedit/docs/conflict.png)
 
 The comparison ignores differences that only come from how forms handle values:
 

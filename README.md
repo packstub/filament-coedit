@@ -171,7 +171,7 @@ When you save, Co-Edit reads the record again, fills it through your form and co
 | yes, the same way | yes | saved, no question |
 | yes | yes, differently | the dialog asks you |
 
-![The conflict dialog](docs/images/conflict.png)
+![The conflict dialog](https://raw.githubusercontent.com/packstub/art/main/filament-coedit/docs/conflict.png)
 
 The comparison ignores differences that only come from how forms handle values: `"12"` and `12`, `10.00` and `10`, `""`, `[]` and `null`, `true` and `"1"`, an enum and its value, a date-time with or without the `T`, the seconds or a zero fraction (one with a zone is compared in the app's time zone), and the fresh UUID keys repeaters and file uploads get on every fill. Anything else is compared exactly: `"+40123"` and `"40123"`, or two notes that start with the same date, are different values.
 
@@ -208,6 +208,10 @@ Optional. Publish it with `php artisan vendor:publish --tag=filament-coedit-conf
 - Only Filament's own save merges. `saveFormComponentOnly()` (a field that saves its own section) writes as in plain Filament.
 - If someone deletes the record while you are editing, your save never recreates it: Filament can no longer load the record and the request stops before anything is written.
 - Names and avatars come from your panel (`getFilamentName()`, `getFilamentAvatarUrl()`), so people look the way they look everywhere else in the panel.
+
+## Documentation
+
+The full documentation is at [packstub.dev/docs/filament-coedit](https://packstub.dev/docs/filament-coedit): [getting started](https://packstub.dev/docs/filament-coedit/getting-started), [how the merge works](https://packstub.dev/docs/filament-coedit/how-the-merge-works), [modal edits](https://packstub.dev/docs/filament-coedit/modal-edits), [customizing](https://packstub.dev/docs/filament-coedit/customizing) and [configuration](https://packstub.dev/docs/filament-coedit/configuration).
 
 ## Testing
 

@@ -20,4 +20,4 @@ If `afterFormFilled()` or `beforeFormValidated()` comes after `coEdit()`, it rep
 
 `coEdit(ignore: ['slug'])` leaves fields out of the merge, and `coEdit(presence: false)` keeps the merge without the avatars.
 
-![Ana is in the same supplier's modal](images/modal.png)
+![Ana is in the same supplier's modal](https://raw.githubusercontent.com/packstub/art/main/filament-coedit/docs/modal.png)

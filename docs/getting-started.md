@@ -38,7 +38,7 @@ return $table
     ]);
 ```
 
-![The table column](images/table.png)
+![The table column](https://raw.githubusercontent.com/packstub/art/main/filament-coedit/docs/table.png)
 
 For relation managers, simple resources and other modal edits, see [Modal edits](modal-edits.md).
 
@@ -46,12 +46,12 @@ For relation managers, simple resources and other modal edits, see [Modal edits]
 
 When someone else saves while you are editing, a notice names them and the fields they changed:
 
-![Ana saved this record](images/notice.png)
+![Ana saved this record](https://raw.githubusercontent.com/packstub/art/main/filament-coedit/docs/notice.png)
 
 **Get their changes** brings their values into your open form for every field you have not touched, without saving. **Dismiss** hides the notice. Your next save keeps their changes either way.
 
 When you save, a notification lists the fields kept from their save:
 
-![Kept Ana's changes](images/merged.png)
+![Kept Ana's changes](https://raw.githubusercontent.com/packstub/art/main/filament-coedit/docs/merged.png)
 
 Next: [How the merge works](how-the-merge-works.md).
