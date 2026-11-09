@@ -8,7 +8,7 @@ panel plugin: a trait on the page is the whole install.
 ## Commands
 
 ```bash
-composer test               # Pest suite (unit: merge + store; feature: two users on real EditRecord pages)
+composer test               # Pest suite (unit: merge + store; feature: two users on real EditRecord pages; security: authorisation and guards)
 composer test:filter <name>
 composer lint               # Pint
 composer serve              # workbench panel: Products (edit pages) + Suppliers (modal edits); ion@/ana@/mihai@example.com, password "password"

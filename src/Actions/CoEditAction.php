@@ -249,7 +249,7 @@ class CoEditAction
         $room = PresenceStore::room($record);
         $keep = [...self::kept($state, $names, $room), ...array_fill_keys($taken, $name)];
         $events = array_map(
-            fn (string $from): ChangesMerged => new ChangesMerged($record, auth()->user(), array_keys($keep, $from, strict: true), $from),
+            fn (string $from): ChangesMerged => new ChangesMerged($record, CoEdit::user(), array_keys($keep, $from, strict: true), $from),
             array_values(array_unique($keep)),
         );
 
@@ -278,7 +278,7 @@ class CoEditAction
             return ['labels' => self::labelsOfChanged($schema, $loaded, array_diff_key($mine, array_flip($taken))), 'events' => $events, 'held' => $held];
         }
 
-        ConflictDetected::dispatch($record, auth()->user(), $conflicts, $name);
+        ConflictDetected::dispatch($record, CoEdit::user(), $conflicts, $name);
 
         // Seen now: their value becomes the base, so submitting again keeps yours.
         foreach ($conflicts as $field) {

@@ -17,7 +17,7 @@ class CoEdit
      */
     public static function who(?Authenticatable $user = null): array
     {
-        $user ??= Filament::auth()->user() ?? auth()->user();
+        $user ??= static::user();
 
         if (! $user instanceof Model) {
             return ['user' => 'guest', 'name' => __('filament-coedit::coedit.someone'), 'avatar' => null];
@@ -30,6 +30,15 @@ class CoEdit
             'name' => Filament::getUserName($user),
             'avatar' => Filament::getUserAvatarUrl($user),
         ];
+    }
+
+    /**
+     * The person on this request, through the panel's guard first: a panel with
+     * its own guard leaves the default one empty.
+     */
+    public static function user(): ?Authenticatable
+    {
+        return Filament::auth()->user() ?? auth()->user();
     }
 
     public static function store(): PresenceStore

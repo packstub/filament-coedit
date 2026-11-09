@@ -197,6 +197,12 @@ trait InteractsWithCoEdit
      */
     public function coeditPull(): void
     {
+        // Callable from the browser: as Filament's save() does, ask the resource again
+        // whether this person may still edit the record before giving them its current version.
+        if (method_exists($this, 'authorizeAccess')) {
+            $this->authorizeAccess();
+        }
+
         $this->coeditCheckLocale();
 
         try {
@@ -354,7 +360,7 @@ trait InteractsWithCoEdit
         $this->callHook('beforeValidate');
         $this->form->validate();
 
-        ConflictDetected::dispatch($this->getRecord(), auth()->user(), $result->conflicts, $name);
+        ConflictDetected::dispatch($this->getRecord(), CoEdit::user(), $result->conflicts, $name);
 
         $this->coeditConflicts = $result->conflicts;
         $this->coeditTheirs = Arr::only($theirs, $result->conflicts);
@@ -407,11 +413,11 @@ trait InteractsWithCoEdit
             $events = [];
 
             foreach (array_unique($this->coeditTaken) as $name) {
-                $events[] = new ChangesMerged($this->getRecord(), auth()->user(), array_keys($this->coeditTaken, $name, strict: true), $name);
+                $events[] = new ChangesMerged($this->getRecord(), CoEdit::user(), array_keys($this->coeditTaken, $name, strict: true), $name);
             }
 
             if ($this->coeditSettled !== []) {
-                $events[] = new ConflictResolved($this->getRecord(), auth()->user(), $this->coeditSettled);
+                $events[] = new ConflictResolved($this->getRecord(), CoEdit::user(), $this->coeditSettled);
             }
 
             $this->getRecord()->getConnection()->afterCommit(function () use ($events): void {
