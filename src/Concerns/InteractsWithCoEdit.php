@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Packstub\CoEdit\CoEdit;
 use Packstub\CoEdit\Events\ChangesMerged;
 use Packstub\CoEdit\Events\ConflictDetected;
@@ -188,6 +189,19 @@ trait InteractsWithCoEdit
                 ->send();
         } finally {
             $this->coeditMerged = false;
+        }
+    }
+
+    /**
+     * "Get their changes" on the save notice. The notice is a Filament notification,
+     * whose buttons reach every component on the page as an event: only the page
+     * whose record it is about pulls.
+     */
+    #[On('coedit-pull')]
+    public function coeditPullRequested(mixed $room = null): void
+    {
+        if ($room === PresenceStore::opaque($this->getCoEditRoom())) {
+            $this->coeditPull();
         }
     }
 

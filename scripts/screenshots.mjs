@@ -102,12 +102,17 @@ try {
   await sleep(1500);
   await sleep(5000);
 
-  const notice = await ion.$eval('.fi-coedit-notice', (el) => getComputedStyle(el).display !== 'none' ? el.innerText : '').catch(() => '');
+  // The notice is a Filament notification, sent by the presence component from the heartbeat.
+  const notice = await ion.$$eval('.fi-no-notification', (els) => els.map((el) => el.innerText).find((text) => text.includes('saved this record')) ?? '').catch(() => '');
   check(notice.includes('Ana Popescu saved this record'), `Ion gets the notice: ${notice.split('\n')[0]}`);
+  check(notice.includes('Get their changes') && notice.includes('Dismiss'), 'the notice has its two buttons');
   await ion.screenshot({ path: `${OUT}notice.png` });
 
-  // Ion saves: Ana's price and status are kept, his description goes in.
-  await ion.click('.fi-coedit-notice button:last-child');
+  // Ion dismisses it and saves: Ana's price and status are kept, his description goes in.
+  await ion.evaluate(() => [...document.querySelectorAll('.fi-no-notification button')].find((b) => b.innerText.trim() === 'Dismiss').click());
+  await sleep(1000);
+  const gone = await ion.$$eval('.fi-no-notification', (els) => els.every((el) => !el.innerText.includes('saved this record')));
+  check(gone, 'Dismiss closes the notice');
   await save(ion);
   await sleep(2000);
   const toast = await ion.$eval('.fi-no', (el) => el.innerText).catch(() => '');

@@ -6,7 +6,7 @@
     x-on:livewire:navigating.window="leave()"
     x-on:pagehide.window="leave()"
     x-on:pageshow.window="$event.persisted && resume()"
-    x-on:filament-coedit-seen.window="save = null"
+    x-on:filament-coedit-seen.window="show(null)"
     x-on:keydown.window="active()"
     x-on:pointerdown.window="active()"
     x-on:pointermove.window.throttle.5000ms="active()"
@@ -33,53 +33,19 @@
         <span class="fi-sr-only" x-text="members.map((member) => describe(member)).join('. ')"></span>
     </div>
 
-    <template x-teleport="body">
-        <div class="fi-coedit-notice" x-show="save" x-cloak x-transition.opacity.duration.200ms>
-            <template x-if="save">
-                <div class="fi-coedit-notice-inner">
-                    <p class="fi-coedit-notice-title" x-text="save.self ? @js(__('filament-coedit::coedit.notice.self_title')) : @js(__('filament-coedit::coedit.notice.title', ['name' => '__NAME__'])).replace('__NAME__', save.name)"></p>
-                    <p class="fi-coedit-notice-body">
-                        <span x-show="save.fields.length" x-text="@js(__('filament-coedit::coedit.notice.fields', ['fields' => '__FIELDS__'])).replace('__FIELDS__', save.fields.join(', '))"></span>
-                        <span x-text="ago(save.at)"></span>
-                    </p>
-                    @if ($config['mode'] === 'editing')
-                        <p class="fi-coedit-notice-hint" x-show="! save.self">{{ __($config['context'] === 'modal' ? 'filament-coedit::coedit.notice.modal_hint' : 'filament-coedit::coedit.notice.hint') }}</p>
-                        <p class="fi-coedit-notice-hint" x-show="save.self">{{ __('filament-coedit::coedit.notice.self_hint') }}</p>
-                    @endif
-                    <div class="fi-coedit-notice-actions">
-                        @if ($config['mode'] === 'editing' && $config['context'] === 'modal')
-                            {{-- A modal's form is filled again only by reopening it; saving merges as on a page. --}}
-                        @elseif ($config['mode'] === 'editing')
-                            <x-filament::button size="sm" x-on:click="pull()">
-                                {{ __('filament-coedit::coedit.notice.pull') }}
-                            </x-filament::button>
-                        @else
-                            <x-filament::button size="sm" x-on:click="window.location.reload()">
-                                {{ __('filament-coedit::coedit.notice.reload') }}
-                            </x-filament::button>
-                        @endif
-                        <x-filament::button size="sm" color="gray" x-on:click="dismiss()">
-                            {{ __('filament-coedit::coedit.notice.dismiss') }}
-                        </x-filament::button>
-                    </div>
-                </div>
-            </template>
-        </div>
-    </template>
 </div>
 
 @script
 <script>
     Alpine.data('filamentCoEdit', (config) => ({
         members: config.initial.members,
-        save: config.initial.save,
+        save: null,
+        shown: null,
         field: null,
         timer: null,
         stopped: false,
         cleanups: [],
         markers: [],
-        skew: Math.floor(Date.now() / 1000) - config.now,
-        clock: Date.now(),
         activity: Date.now(),
         idle: false,
 
@@ -90,10 +56,15 @@
             }
 
             this.schedule(0)
-            this.$nextTick(() => this.mark())
+            this.$nextTick(() => {
+                this.mark()
+                this.show(config.initial.save)
+            })
 
-            const clock = setInterval(() => (this.clock = Date.now()), 15000)
-            this.cleanups.push(() => clearInterval(clock))
+            // Closed from the toast itself (its ×, Escape, or one of its buttons): the person has seen it.
+            const closed = (event) => this.closed(event.detail?.id)
+            window.addEventListener('notificationClosed', closed)
+            this.cleanups.push(() => window.removeEventListener('notificationClosed', closed))
 
             // A page update morphs the form back to the server's markup; put the markers back on.
             const unhook = Livewire.hook('commit', ({ succeed }) => succeed(() => queueMicrotask(() => this.markers.length && this.mark())))
@@ -147,7 +118,7 @@
                 }
 
                 this.members = snapshot.members
-                this.save = snapshot.save
+                this.show(snapshot.save)
                 this.mark()
             } catch (error) {
                 // A dropped request is fine: the next heartbeat tries again.
@@ -292,14 +263,74 @@
             this.markers = []
         },
 
-        async pull() {
-            await this.$wire.$parent.coeditPull()
-            this.save = null
+        // The "Ana saved this record" notice is a Filament notification, sent from here
+        // because a heartbeat never renders. One id per room: a newer save replaces it.
+        show(save) {
+            this.save = save
+
+            if (! save) {
+                this.shown !== null && this.hide()
+
+                return
+            }
+
+            if (save.version === this.shown || ! window.FilamentNotification) {
+                return
+            }
+
+            this.shown = save.version
+
+            const labels = config.labels
+            const escape = (text) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
+            const actions = []
+
+            if (config.mode === 'editing' && config.context !== 'modal') {
+                actions.push(new FilamentNotificationAction('pull').label(labels.pull).button().dispatch('coedit-pull', { room: config.room }).close())
+            }
+
+            if (config.mode !== 'editing') {
+                actions.push(new FilamentNotificationAction('reload').label(labels.reload).button().url(window.location.href))
+            }
+
+            actions.push(new FilamentNotificationAction('dismiss').label(labels.dismiss).button().color('gray').close())
+
+            const hint = config.mode !== 'editing' ? null
+                : save.self ? labels.self_hint
+                : config.context === 'modal' ? labels.modal_hint
+                : labels.hint
+
+            new FilamentNotification()
+                .id(this.noticeId)
+                .title(save.self ? labels.self_title : labels.title.replace(':name', escape(save.name)))
+                .body([save.fields.length ? labels.fields.replace(':fields', escape(save.fields.join(', '))) : null, hint].filter(Boolean).join(' '))
+                .icon('heroicon-o-arrow-path')
+                .iconColor('primary')
+                .persistent()
+                .actions(actions)
+                .send()
         },
 
-        dismiss() {
-            this.$wire.acknowledge(this.save?.version)
-            this.save = null
+        // The page merged the save, or the notice was dismissed elsewhere: nothing left to say.
+        hide() {
+            this.shown = null
+            window.dispatchEvent(new CustomEvent('close-notification', { detail: { id: this.noticeId } }))
+        },
+
+        closed(id) {
+            if (id !== this.noticeId) {
+                return
+            }
+
+            this.shown = null
+
+            if (this.save) {
+                this.$wire.acknowledge(this.save.version)
+                this.save = null
+            }
+        },
+
+        get noticeId() {
+            return `filament-coedit-save-${config.room}`
         },
 
         describe(member) {
@@ -312,17 +343,6 @@
 
         initials(name) {
             return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('')
-        },
-
-        ago(at) {
-            this.clock
-            const seconds = Math.max(0, Math.floor(Date.now() / 1000) - this.skew - at)
-            const format = new Intl.RelativeTimeFormat(document.documentElement.lang || undefined, { numeric: 'auto' })
-
-            if (seconds < 60) return format.format(-seconds, 'second')
-            if (seconds < 3600) return format.format(-Math.floor(seconds / 60), 'minute')
-
-            return format.format(-Math.floor(seconds / 3600), 'hour')
         },
     }))
 </script>

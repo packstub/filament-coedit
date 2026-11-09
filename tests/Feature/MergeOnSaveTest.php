@@ -188,6 +188,21 @@ it('brings their changes into the open form without saving', function (): void {
     $ion->call('save')->assertActionMounted('coeditResolve');
 });
 
+it('pulls when the save notice asks for this record, and ignores another record\'s notice', function (): void {
+    $ion = editAs($this->ion, $this->article);
+
+    anaSaves($this->article, ['status' => 'review']);
+
+    $this->actingAs($this->ion);
+    $ion->dispatch('coedit-pull', room: PresenceStore::opaque('other-room'))
+        ->assertSet('data.status', 'draft')
+        ->assertNotNotified('Form updated');
+
+    $ion->dispatch('coedit-pull', room: PresenceStore::opaque(PresenceStore::room($this->article)))
+        ->assertSet('data.status', 'review')
+        ->assertNotified('Form updated');
+});
+
 it('keeps the merge base out of reach of the browser', function (): void {
     editAs($this->ion, $this->article)
         ->set('coeditBase', ['title' => 'forged']);
