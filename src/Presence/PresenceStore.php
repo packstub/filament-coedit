@@ -60,12 +60,15 @@ class PresenceStore
      * reveals, or lets anyone confirm a guess of, the database name (a tenant's,
      * or an SQLite file's path), the model class or the key. The store accepts a
      * room in either form.
+     *
+     * @internal
      */
     public static function opaque(string $room): string
     {
         return preg_match('/^#[0-9a-f]{64}$/', $room) ? $room : '#'.hash_hmac('sha256', $room, (string) config('app.key'));
     }
 
+    /** @internal */
     public static function colorFor(string $user): string
     {
         return self::COLORS[crc32($user) % count(self::COLORS)];
@@ -76,6 +79,8 @@ class PresenceStore
      *
      * @param  array{user: string, name: string, avatar: ?string}  $who
      * @return list<array{user: string, name: string, avatar: ?string, color: string, mode: string, fields: list<string>}>
+     *
+     * @internal
      */
     public function touch(string $room, string $tab, array $who, string $mode, ?string $field = null): array
     {
@@ -95,6 +100,7 @@ class PresenceStore
         return $this->group($members, $who['user']);
     }
 
+    /** @internal */
     public function leave(string $room, string $tab): void
     {
         $this->mutate($room, function (array $members) use ($tab): array {
@@ -109,6 +115,8 @@ class PresenceStore
      * their tabs and every field they are in.
      *
      * @return list<array{user: string, name: string, avatar: ?string, color: string, mode: string, fields: list<string>}>
+     *
+     * @internal
      */
     public function members(string $room, ?string $exceptUser = null): array
     {
@@ -118,6 +126,8 @@ class PresenceStore
     /**
      * @param  list<string>  $rooms
      * @return array<string, list<array{user: string, name: string, avatar: ?string, color: string, mode: string, fields: list<string>}>>
+     *
+     * @internal
      */
     public function membersOfMany(array $rooms, ?string $exceptUser = null): array
     {
@@ -143,6 +153,8 @@ class PresenceStore
      * @param  array{user: string, name: string, avatar: ?string}  $who
      * @param  list<string>  $fields  labels of the fields that changed
      * @return array{version: int, user: string, name: string, at: int, fields: list<string>}
+     *
+     * @internal
      */
     public function recordSave(string $room, array $who, array $fields, ?string $origin = null): array
     {
@@ -182,6 +194,8 @@ class PresenceStore
      * a later submit finds nothing.
      *
      * @param  array<mixed>  $value
+     *
+     * @internal
      */
     public function hold(string $room, string $user, array $value): string
     {
@@ -194,6 +208,8 @@ class PresenceStore
 
     /**
      * @return array<mixed>|null
+     *
+     * @internal
      */
     public function take(string $room, string $user, string $token): ?array
     {
@@ -209,6 +225,8 @@ class PresenceStore
 
     /**
      * @return array{version: int, user: string, name: string, at: int, fields: list<string>, origin?: ?string}|null
+     *
+     * @internal
      */
     public function lastSave(string $room): ?array
     {

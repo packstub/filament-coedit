@@ -18,6 +18,7 @@ trait HasPresence
     #[Locked]
     public string $coeditOrigin = '';
 
+    /** @internal */
     public function mountHasPresence(): void
     {
         // Called again from the browser (Livewire 3 lets it through), it changes nothing.
