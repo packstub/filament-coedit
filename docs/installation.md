@@ -1,7 +1,7 @@
 # Installation
 
 ```bash
-composer require packstub/filament-coedit:^1.0@beta
+composer require packstub/filament-coedit
 php artisan filament:assets
 ```
 
