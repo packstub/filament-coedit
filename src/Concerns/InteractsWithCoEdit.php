@@ -123,6 +123,7 @@ trait InteractsWithCoEdit
     #[Locked]
     public bool $coeditMounted = false;
 
+    /** @internal */
     public function mountInteractsWithCoEdit(): void
     {
         if ($this->coeditMounted) {
@@ -196,6 +197,8 @@ trait InteractsWithCoEdit
      * "Get their changes" on the save notice. The notice is a Filament notification,
      * whose buttons reach every component on the page as an event: only the page
      * whose record it is about pulls.
+     *
+     * @internal
      */
     #[On('coedit-pull')]
     public function coeditPullRequested(mixed $room = null): void
@@ -208,6 +211,8 @@ trait InteractsWithCoEdit
     /**
      * Bring the other person's saved changes into the open form without saving.
      * Fields you have changed yourself stay as you left them.
+     *
+     * @internal
      */
     public function coeditPull(): void
     {
@@ -248,6 +253,7 @@ trait InteractsWithCoEdit
             ->send();
     }
 
+    /** @internal */
     public function coeditResolveAction(): Action
     {
         return Action::make('coeditResolve')
@@ -410,6 +416,8 @@ trait InteractsWithCoEdit
 
     /**
      * Called by the service provider when Filament reports this page saved the record.
+     *
+     * @internal
      */
     public function coeditAfterSave(): void
     {

@@ -7,6 +7,7 @@
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/packstub/filament-coedit.svg?style=flat-square)](https://packagist.org/packages/packstub/filament-coedit)
 [![Tests](https://img.shields.io/github/actions/workflow/status/packstub/filament-coedit/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/packstub/filament-coedit/actions/workflows/tests.yml)
 [![License](https://img.shields.io/packagist/l/packstub/filament-coedit.svg?style=flat-square)](https://github.com/packstub/filament-coedit/blob/main/LICENSE.md)
+[![Listed on filamentphp.com](https://img.shields.io/badge/filamentphp.com-listed-fb7185?style=flat-square&logo=filament&logoColor=white)](https://filamentphp.com/plugins/packstub-co-edit)
 
 </div>
 
@@ -40,11 +41,9 @@ These minimums are the first Filament releases with the fixes for the multi-fact
 ## Installation
 
 ```bash
-composer require packstub/filament-coedit:^1.0@beta
+composer require packstub/filament-coedit
 php artisan filament:assets
 ```
-
-Co-Edit is in public beta until 1.0; the `@beta` constraint lets Composer install it without changing your project's minimum stability.
 
 ## Usage
 
