@@ -2,7 +2,7 @@
 
 All notable changes to `packstub/filament-coedit` are documented in this file.
 
-## 1.0.0 - Unreleased
+## 1.0.0 - 2026-11-25
 
 The first stable release, with no changes to how Co-Edit merges since the beta. The public API (the `InteractsWithCoEdit` and `HasPresence` traits, `EditAction::make()->coEdit()`, `PresenceColumn`, the events, the config keys, the `getCoEdit…()` methods a page overrides, `PresenceStore::resolveRoomUsing()` and `whileSaving()`) now follows semantic versioning; methods marked `@internal` are not part of it.
 
